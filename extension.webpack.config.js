@@ -24,5 +24,8 @@ module.exports = {
 	externals: {
 		'vscode': 'commonjs vscode',
 	},
+	resolve: {
+		mainFields: ['main']
+	},
 	stats: 'errors-only'
 };
