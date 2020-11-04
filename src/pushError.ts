@@ -3,6 +3,10 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-/// <reference path='../../../../src/vs/vscode.d.ts'/>
-/// <reference path='../../../../src/vs/vscode.proposed.d.ts'/>
-/// <reference path="../../../types/lib.textEncoder.d.ts" />
+import { Disposable } from 'vscode';
+import { PushErrorHandler } from './api/git';
+
+export interface IPushErrorHandlerRegistry {
+	registerPushErrorHandler(provider: PushErrorHandler): Disposable;
+	getPushErrorHandlers(): PushErrorHandler[];
+}
