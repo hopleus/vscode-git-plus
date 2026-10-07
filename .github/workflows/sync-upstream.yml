@@ -40,5 +40,5 @@ jobs:
           if [ "$AHEAD" -gt 0 ] && [ "$OPEN" -eq 0 ]; then
             gh pr create --repo "$GITHUB_REPOSITORY" --base main --head upstream \
               --title "Sync with microsoft/vscode" \
-              --body "Upstream changes for extensions/git. Merge with 'Create a merge commit' only (no squash/rebase)."
+              --body "Upstream changes for extensions/git. Merge with 'Create a merge commit' only. See .github/SYNC.md"
           fi
