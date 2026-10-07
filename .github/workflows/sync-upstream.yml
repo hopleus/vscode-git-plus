@@ -1,0 +1,44 @@
+name: Sync from upstream
+
+on:
+  schedule:
+    - cron: "17 5 */3 * *" # every 3 days at 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install git-filter-repo
+        run: pipx install git-filter-repo==2.47.0
+
+      - name: Extract extensions/git from upstream
+        run: |
+          git clone --single-branch --branch main --no-tags \
+            https://github.com/microsoft/vscode.git filtered
+          git -C filtered filter-repo --subdirectory-filter extensions/git
+
+      - name: Update upstream branch
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          git -C filtered push \
+            "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            main:upstream
+
+      - name: Open PR upstream -> main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          AHEAD=$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...upstream" --jq .ahead_by)
+          OPEN=$(gh pr list --repo "$GITHUB_REPOSITORY" --head upstream --base main \
+                   --state open --json number --jq length)
+          if [ "$AHEAD" -gt 0 ] && [ "$OPEN" -eq 0 ]; then
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head upstream \
+              --title "Sync with microsoft/vscode" \
+              --body "Upstream changes for extensions/git. Merge with 'Create a merge commit' only (no squash/rebase)."
+          fi
