@@ -79,7 +79,7 @@ class CheckoutStatusBar {
 					return '$(git-branch-conflicts)';
 				case this.repository.indexGroup.resourceStates.length > 0:
 					return '$(git-branch-staged-changes)';
-				case this.repository.workingTreeGroup.resourceStates.length + this.repository.untrackedGroup.resourceStates.length > 0:
+				case this.repository.changelists.workingTreeResources.length + this.repository.changelists.untrackedResources.length > 0:
 					return '$(git-branch-changes)';
 				default:
 					return '$(git-branch)';

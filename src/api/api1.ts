@@ -56,8 +56,8 @@ export class ApiRepositoryState implements RepositoryState {
 
 	get mergeChanges(): Change[] { return this.#repository.mergeGroup.resourceStates.map(r => new ApiChange(r)); }
 	get indexChanges(): Change[] { return this.#repository.indexGroup.resourceStates.map(r => new ApiChange(r)); }
-	get workingTreeChanges(): Change[] { return this.#repository.workingTreeGroup.resourceStates.map(r => new ApiChange(r)); }
-	get untrackedChanges(): Change[] { return this.#repository.untrackedGroup.resourceStates.map(r => new ApiChange(r)); }
+	get workingTreeChanges(): Change[] { return this.#repository.changelists.workingTreeResources.map(r => new ApiChange(r)); }
+	get untrackedChanges(): Change[] { return this.#repository.changelists.untrackedResources.map(r => new ApiChange(r)); }
 }
 
 export class ApiRepositoryUIState implements RepositoryUIState {

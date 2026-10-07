@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GIT_PLUS_REPOSITORY: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix tools
+
+      - name: Download VS Code API types
+        run: npm run types --prefix tools
+
+      - name: Typecheck
+        run: npm run typecheck --prefix tools
+
+      - name: Test
+        run: xvfb-run -a npm test --prefix tools
+
+      - name: Package
+        run: |
+          export GIT_PLUS_VERSION="${GITHUB_REF_NAME#v}"
+          node tools/build.mjs --package --updater
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "${GITHUB_REF_NAME}" ".build/vscode-git-plus-${VERSION}.vsix" \
+            --title "Git Plus ${VERSION}" \
+            --notes "Installation: [INSTALL.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/INSTALL.md)" \
+            --generate-notes

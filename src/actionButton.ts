@@ -305,12 +305,12 @@ export class ActionButton {
 			// Smart commit disabled, smart suggestion enabled
 			(!enableSmartCommit && suggestSmartCommit)
 		) {
-			resources.push(...this.repository.workingTreeGroup.resourceStates);
+			resources.push(...this.repository.changelists.workingTreeResources);
 		}
 
 		// Smart commit enabled (tracked only)
 		if (enableSmartCommit && smartCommitChanges === 'tracked') {
-			resources.push(...this.repository.workingTreeGroup.resourceStates.filter(r => r.type !== Status.UNTRACKED));
+			resources.push(...this.repository.changelists.workingTreeResources.filter(r => r.type !== Status.UNTRACKED));
 		}
 
 		return resources.length !== 0;

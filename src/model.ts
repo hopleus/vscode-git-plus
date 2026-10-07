@@ -585,7 +585,7 @@ export class Model implements IRepositoryResolver, IBranchProtectionProviderRegi
 
 		const indexResource = repository.indexGroup.resourceStates
 			.find(resource => pathEquals(resource.resourceUri.fsPath, textEditor.document.uri.fsPath));
-		const workingTreeResource = repository.workingTreeGroup.resourceStates
+		const workingTreeResource = repository.changelists.workingTreeResources
 			.find(resource => pathEquals(resource.resourceUri.fsPath, textEditor.document.uri.fsPath));
 		const mergeChangesResource = repository.mergeGroup.resourceStates
 			.find(resource => pathEquals(resource.resourceUri.fsPath, textEditor.document.uri.fsPath));
@@ -685,7 +685,7 @@ export class Model implements IRepositoryResolver, IBranchProtectionProviderRegi
 
 			// Open repository
 			const gitRepository = this.git.open(repositoryRoot, repositoryRootRealPath, dotGit, this.logger);
-			const repository = new Repository(gitRepository, this, this, this, this, this, this, this.globalState, this.logger, this.telemetryReporter, this._repositoryCache);
+			const repository = new Repository(gitRepository, this, this, this, this, this, this, this.globalState, this.workspaceState, this.logger, this.telemetryReporter, this._repositoryCache);
 
 			this.open(repository);
 			this._closedRepositoriesManager.deleteRepository(repository.root);

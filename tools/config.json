@@ -1,0 +1,7 @@
+{
+  "vscode": "1.141.0",
+  "publisher": "hopleus",
+  "name": "vscode-git-plus",
+  "displayName": "Git Plus",
+  "description": "Git with changelists, hunk-level commits and history rewriting in the Source Control Graph"
+}

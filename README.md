@@ -1,3 +1,14 @@
+# Git+
+**Git+** is a build of the Git extension that ships with VS Code, extended with:
+
+- changelists: named groups of changes in Source Control, with hunk-level assignment
+- commit of a single changelist without touching the index
+- history rewriting in the Source Control Graph: edit message, squash, drop, reset, undo commit
+
+It uses proposed VS Code APIs and is distributed as a `.vsix` through [GitHub Releases](../../releases). See [INSTALL.md](INSTALL.md) for installation and updates.
+
+---
+
 # Git integration for Visual Studio Code
 
 **Notice:** This extension is bundled with Visual Studio Code. It can be disabled but not uninstalled.

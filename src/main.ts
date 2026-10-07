@@ -29,6 +29,8 @@ import { GitCommitInputBoxCodeActionsProvider, GitCommitInputBoxDiagnosticsManag
 import { GitBlameController } from './blame';
 import { CloneManager } from './cloneManager';
 import { getAskpassPaths } from './askpassManager';
+import { registerChangelistCommands } from './changelists/commands';
+import { registerHunkUi } from './changelists/hunkUi';
 
 const deactivateTasks: { (): Promise<void> }[] = [];
 
@@ -113,6 +115,7 @@ async function createModel(context: ExtensionContext, logger: LogOutputChannel, 
 	disposables.push(toDisposable(() => git.onOutput.removeListener('log', onOutput)));
 
 	const cc = new CommandCenter(git, model, context.globalState, logger, telemetryReporter, cloneManager);
+	disposables.push(...registerChangelistCommands(model), ...registerHunkUi(model));
 	disposables.push(
 		cc,
 		new GitFileSystemProvider(model, logger),

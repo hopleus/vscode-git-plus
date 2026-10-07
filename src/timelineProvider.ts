@@ -242,7 +242,7 @@ export class GitTimelineProvider implements TimelineProvider {
 			}
 
 			if (showUncommitted) {
-				const working = repo.workingTreeGroup.resourceStates.find(r => r.resourceUri.fsPath === uri.fsPath);
+				const working = repo.changelists.workingTreeResources.find(r => r.resourceUri.fsPath === uri.fsPath);
 				if (working) {
 					const date = new Date();
 

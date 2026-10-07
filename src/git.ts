@@ -12,7 +12,7 @@ import which from 'which';
 import { EventEmitter } from 'events';
 import { fileTypeFromBuffer } from 'file-type';
 import { assign, groupBy, IDisposable, toDisposable, dispose, mkdirp, readBytes, detectUnicodeEncoding, Encoding, onceEvent, splitInChunks, Limiter, Versions, isWindows, pathEquals, isMacintosh, isDescendant, relativePathWithNoFallback, Mutable } from './util';
-import { CancellationError, CancellationToken, ConfigurationChangeEvent, LogOutputChannel, Progress, Uri, workspace } from 'vscode';
+import { CancellationError, CancellationToken, ConfigurationChangeEvent, l10n, LogOutputChannel, Progress, Uri, workspace } from 'vscode';
 import type { Commit as ApiCommit, Ref, Branch, Remote, LogOptions, Change, CommitOptions, RefQuery as ApiRefQuery, InitOptions, DiffChange, Worktree as ApiWorktree } from './api/git';
 import { RefType, ForcePushMode, GitErrorCodes, Status } from './api/git.constants';
 import * as byline from 'byline';
@@ -20,6 +20,7 @@ import { StringDecoder } from 'string_decoder';
 
 // https://github.com/microsoft/vscode/issues/65693
 const MAX_CLI_LENGTH = 30000;
+const COMMIT_DETAILS_FORMAT = ['%H', '%P', '%T', '%an', '%ae', '%aI', '%cn', '%ce', '%cI', '%B'].join('%x00');
 
 function assertValidObjectId(sha: string, allowZero = false): void {
 	if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(sha) || (!allowZero && /^0+$/.test(sha))) {
@@ -774,6 +775,52 @@ export interface Commit {
 	refNames: string[];
 	shortStat?: CommitShortStat;
 	coAuthors?: CoAuthor[];
+}
+
+export type ResetMode = 'soft' | 'mixed' | 'hard' | 'keep';
+
+export interface CommitIdentity {
+	readonly name: string;
+	readonly email: string;
+	readonly date: string;
+}
+
+export interface CommitDetails {
+	readonly hash: string;
+	readonly parents: string[];
+	readonly tree: string;
+	readonly author: CommitIdentity;
+	readonly committer: CommitIdentity;
+	readonly message: string;
+}
+
+export interface SelectionPatch {
+	readonly path: string;
+	readonly patch: string;
+}
+
+export interface CommitSelection {
+	readonly paths: readonly string[];
+	readonly patches: readonly SelectionPatch[];
+}
+
+export interface SelectionIndex {
+	readonly file: string;
+	readonly touched: readonly string[];
+	dispose(): Promise<void>;
+}
+
+export interface NewCommit {
+	readonly tree: string;
+	readonly parents: string[];
+	readonly message: string;
+	readonly author: CommitIdentity;
+	readonly committer?: CommitIdentity;
+}
+
+export interface NameStatusEntry {
+	readonly status: string;
+	readonly path: string;
 }
 
 export interface RefQuery extends ApiRefQuery {
@@ -2079,9 +2126,13 @@ export class Repository {
 		}
 	}
 
-	async commit(message: string | undefined, opts: CommitOptions = Object.create(null)): Promise<void> {
+	async commit(message: string | undefined, opts: CommitOptions = Object.create(null), indexFile?: string): Promise<void> {
 		const args = ['commit', '--quiet'];
 		const options: SpawnOptions = {};
+
+		if (indexFile) {
+			options.env = { GIT_INDEX_FILE: indexFile };
+		}
 
 		if (message) {
 			options.input = message;
@@ -2352,6 +2403,167 @@ export class Repository {
 		}
 
 		await this.exec(['reset', '--keep', ref]);
+	}
+
+	async resetTo(treeish: string, mode: ResetMode): Promise<void> {
+		await this.exec(['reset', `--${mode}`, treeish, '--']);
+	}
+
+	async getCommitDetails(ref: string): Promise<CommitDetails> {
+		const result = await this.exec(['log', '-1', `--format=${COMMIT_DETAILS_FORMAT}`, ref, '--']);
+		const [hash, parents, tree, authorName, authorEmail, authorDate, committerName, committerEmail, committerDate, ...message] = result.stdout.split('\0');
+
+		return {
+			hash,
+			parents: parents.split(' ').filter(Boolean),
+			tree,
+			author: { name: authorName, email: authorEmail, date: authorDate },
+			committer: { name: committerName, email: committerEmail, date: committerDate },
+			message: message.join('\0').replace(/\s+$/, '')
+		};
+	}
+
+	async createCommitFromTree(commit: NewCommit): Promise<string> {
+		const env: Record<string, string> = {
+			GIT_AUTHOR_NAME: commit.author.name,
+			GIT_AUTHOR_EMAIL: commit.author.email,
+			GIT_AUTHOR_DATE: commit.author.date
+		};
+
+		if (commit.committer) {
+			env.GIT_COMMITTER_NAME = commit.committer.name;
+			env.GIT_COMMITTER_EMAIL = commit.committer.email;
+			env.GIT_COMMITTER_DATE = commit.committer.date;
+		}
+
+		const args = ['commit-tree', commit.tree, ...commit.parents.flatMap(parent => ['-p', parent]), '-F', '-'];
+		const input = commit.message.endsWith('\n') ? commit.message : `${commit.message}\n`;
+		const result = await this.exec(args, { env, input });
+		return result.stdout.trim();
+	}
+
+	async updateHead(newSha: string, oldSha: string): Promise<void> {
+		assertValidObjectId(newSha);
+		assertValidObjectId(oldSha);
+		await this.exec(['update-ref', '-m', 'rewrite history', 'HEAD', newSha, oldSha]);
+	}
+
+	async listAncestryPath(from: string, to: string): Promise<string[]> {
+		const result = await this.exec(['rev-list', '--reverse', '--topo-order', '--ancestry-path', `${from}..${to}`]);
+		return result.stdout.split('\n').filter(Boolean);
+	}
+
+	async isAncestor(ancestor: string, descendant: string): Promise<boolean> {
+		try {
+			await this.exec(['merge-base', '--is-ancestor', ancestor, descendant]);
+			return true;
+		} catch (err) {
+			if (err instanceof GitError && err.exitCode === 1) {
+				return false;
+			}
+
+			throw err;
+		}
+	}
+
+	async getRemoteBranchesContaining(commit: string): Promise<string[]> {
+		const result = await this.exec(['branch', '-r', '--contains', commit, '--format=%(refname:short)']);
+		return result.stdout.split('\n').map(line => line.trim()).filter(line => line && !line.endsWith('/HEAD'));
+	}
+
+	async dropCommit(hash: string, parent: string): Promise<void> {
+		const env = { GIT_EDITOR: 'true', GIT_SEQUENCE_EDITOR: 'true' };
+
+		try {
+			await this.exec(['-c', 'rebase.autoSquash=false', 'rebase', '--autostash', '--onto', parent, hash], { env });
+		} catch (err) {
+			await this.rebaseAbort().catch(() => undefined);
+			throw err;
+		}
+	}
+
+	async getNameStatusOfCommit(hash: string): Promise<NameStatusEntry[]> {
+		const result = await this.exec(['diff-tree', '--no-commit-id', '--name-status', '-r', '-z', '--no-renames', hash]);
+		const fields = result.stdout.split('\0').filter(Boolean);
+		const entries: NameStatusEntry[] = [];
+
+		for (let index = 0; index + 1 < fields.length; index += 2) {
+			entries.push({ status: fields[index], path: fields[index + 1] });
+		}
+
+		return entries;
+	}
+
+	async addIntentToAdd(paths: string[]): Promise<void> {
+		for (const chunk of splitInChunks(paths.map(p => this.sanitizeRelativePath(p)), MAX_CLI_LENGTH)) {
+			await this.exec(['add', '--intent-to-add', '--', ...chunk]);
+		}
+	}
+
+	async resetIndexPaths(paths: string[]): Promise<void> {
+		for (const chunk of splitInChunks(paths.map(p => this.sanitizeRelativePath(p)), MAX_CLI_LENGTH)) {
+			await this.exec(['reset', '-q', '--', ...chunk]);
+		}
+	}
+
+	async getHunksDiff(filePath: string, options?: { cached?: boolean }): Promise<string> {
+		const base = options?.cached ? ['--cached'] : ['HEAD'];
+		const args = ['-c', 'core.quotepath=off', 'diff', ...base, '-U0', '--no-color', '--no-ext-diff', '--no-renames', '--', this.sanitizeRelativePath(filePath)];
+		const result = await this.exec(args);
+		return result.stdout;
+	}
+
+	async applyPatchToIndex(patch: string): Promise<void> {
+		await this.exec(['apply', '--cached', '--unidiff-zero', '--whitespace=nowarn', '-'], { input: patch });
+	}
+
+	async showWithPatch(filePath: string, patch: string | undefined): Promise<string> {
+		const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-index-'));
+		const env = { GIT_INDEX_FILE: path.join(directory, 'index') };
+
+		try {
+			const hasHead = await this.exec(['rev-parse', '--verify', '-q', 'HEAD']).then(() => true, () => false);
+			await this.exec(hasHead ? ['read-tree', 'HEAD'] : ['read-tree', '--empty'], { env });
+			if (patch) {
+				await this.exec(['apply', '--cached', '--unidiff-zero', '--whitespace=nowarn', '-'], { env, input: patch });
+			}
+
+			const result = await this.exec(['show', `:${this.sanitizeRelativePath(filePath)}`], { env });
+			return result.stdout;
+		} finally {
+			await fs.rm(directory, { recursive: true, force: true });
+		}
+	}
+
+	async createSelectionIndex(selection: CommitSelection): Promise<SelectionIndex> {
+		const unmerged = await this.exec(['ls-files', '-u', '-z']);
+		if (unmerged.stdout.length > 0) {
+			throw new Error(l10n.t('Cannot commit while there are unmerged paths'));
+		}
+
+		const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-index-'));
+		const file = path.join(directory, 'index');
+		const env = { GIT_INDEX_FILE: file };
+		const dispose = () => fs.rm(directory, { recursive: true, force: true });
+
+		try {
+			const hasHead = await this.exec(['rev-parse', '--verify', '-q', 'HEAD']).then(() => true, () => false);
+			await this.exec(hasHead ? ['read-tree', 'HEAD'] : ['read-tree', '--empty'], { env });
+
+			if (selection.paths.length > 0) {
+				const input = selection.paths.map(p => `${this.sanitizeRelativePath(p)}\0`).join('');
+				await this.exec(['add', '-A', '--pathspec-from-file=-', '--pathspec-file-nul'], { env, input });
+			}
+
+			for (const { patch } of selection.patches) {
+				await this.exec(['apply', '--cached', '--unidiff-zero', '--whitespace=nowarn', '-'], { env, input: patch });
+			}
+		} catch (err) {
+			await dispose();
+			throw err;
+		}
+
+		return { file, touched: [...selection.paths, ...selection.patches.map(p => p.path)], dispose };
 	}
 
 	async revert(treeish: string, paths: string[]): Promise<void> {

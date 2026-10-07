@@ -12,6 +12,7 @@ import { ForcePushMode, GitErrorCodes, RefType, Status } from './api/git.constan
 import { Git, GitError, Repository as GitRepository, Stash, Worktree } from './git';
 import { Model } from './model';
 import { GitResourceGroup, Repository, Resource, ResourceGroupType } from './repository';
+import { dropCommit, editCommitMessage, resetBranchTo, squashCommits, undoCommitIntoChangelist } from './historyActions';
 import { DiffEditorSelectionHunkToolbarContext, LineChange, applyLineChanges, getIndexDiffInformation, getModifiedRange, getWorkingTreeDiffInformation, intersectDiffWithRange, invertLineChange, toLineChanges, toLineRanges, compareLineChanges } from './staging';
 import { fromGitUri, toGitUri, isGitUri, toMergeUris, toMultiFileDiffEditorUris } from './uri';
 import { coalesce, DiagnosticSeverityConfig, dispose, fromNow, getHistoryItemDisplayName, getStashDescription, grep, isDefined, isDescendant, isLinuxSnap, isRemote, isWindows, pathEquals, relativePath, subject, toDiagnosticSeverity, truncate } from './util';
@@ -1569,12 +1570,17 @@ export class CommandCenter {
 
 		const workingTree = selection.filter(s => s.resourceGroupType === ResourceGroupType.WorkingTree);
 		const untracked = selection.filter(s => s.resourceGroupType === ResourceGroupType.Untracked);
-		const scmResources = [...workingTree, ...untracked, ...resolved, ...unresolved];
+		const scmResources = [...untracked, ...resolved, ...unresolved].filter(r => r.resourceGroupType !== ResourceGroupType.WorkingTree);
 
-		this.logger.debug(`[CommandCenter][stage] git.stage.scmResources ${scmResources.length} `);
-		if (!scmResources.length) {
+		this.logger.debug(`[CommandCenter][stage] git.stage.scmResources ${scmResources.length + workingTree.length} `);
+		if (!scmResources.length && !workingTree.length) {
 			return;
 		}
+
+		await this.runByRepository(workingTree.map(r => r.resourceUri), async (repository, uris) => {
+			const keys = new Set(uris.map(uri => uri.toString()));
+			await repository.changelists.stageResources(repository, workingTree.filter(r => keys.has(r.resourceUri.toString())));
+		});
 
 		const resources = scmResources.map(r => r.resourceUri);
 		await this.runByRepository(resources, async (repository, resources) => repository.add(resources));
@@ -2388,6 +2394,15 @@ export class CommandCenter {
 		let noStagedChanges = repository.indexGroup.resourceStates.length === 0;
 		let noUnstagedChanges = repository.workingTreeGroup.resourceStates.length === 0;
 
+		const changelistMode = await repository.changelists.beginCommit(opts);
+		if (changelistMode === 'cancel') {
+			return;
+		}
+		const commitsChangelist = changelistMode === 'changelist';
+		if (commitsChangelist) {
+			opts = { ...opts, all: false };
+		}
+
 		if (!opts.empty) {
 			if (promptToSaveFilesBeforeCommit !== 'never') {
 				let documents = workspace.textDocuments
@@ -2424,7 +2439,7 @@ export class CommandCenter {
 			}
 
 			// no changes, and the user has not configured to commit all in this case
-			if (!noUnstagedChanges && noStagedChanges && !enableSmartCommit && !opts.all && !opts.amend) {
+			if (!commitsChangelist && !noUnstagedChanges && noStagedChanges && !enableSmartCommit && !opts.all && !opts.amend) {
 				const suggestSmartCommit = config.get<boolean>('suggestSmartCommit') === true;
 
 				if (!suggestSmartCommit) {
@@ -2453,7 +2468,7 @@ export class CommandCenter {
 			}
 
 			// smart commit
-			if (enableSmartCommit && !opts.all) {
+			if (!commitsChangelist && enableSmartCommit && !opts.all) {
 				opts = { ...opts, all: noStagedChanges };
 			}
 		}
@@ -2487,6 +2502,7 @@ export class CommandCenter {
 			)
 			// amend allows changing only the commit message
 			&& !opts.amend
+			&& !commitsChangelist
 			&& !opts.empty
 			// merge not in progress
 			&& !repository.mergeInProgress
@@ -4195,6 +4211,37 @@ export class CommandCenter {
 		}
 
 		await repository.cherryPick(historyItem.id);
+	}
+
+	@command('git.graph.editMessage', { repository: true })
+	async editCommitMessage(repository: Repository, historyItem?: SourceControlHistoryItem): Promise<void> {
+		await editCommitMessage(repository, historyItem?.id ?? 'HEAD');
+	}
+
+	@command('git.graph.squash', { repository: true })
+	async squashCommits(repository: Repository, historyItem?: SourceControlHistoryItem): Promise<void> {
+		if (historyItem) {
+			await squashCommits(repository, historyItem.id);
+		}
+	}
+
+	@command('git.graph.drop', { repository: true })
+	async dropCommit(repository: Repository, historyItem?: SourceControlHistoryItem): Promise<void> {
+		if (historyItem) {
+			await dropCommit(repository, historyItem.id);
+		}
+	}
+
+	@command('git.graph.reset', { repository: true })
+	async resetBranchTo(repository: Repository, historyItem?: SourceControlHistoryItem): Promise<void> {
+		if (historyItem) {
+			await resetBranchTo(repository, historyItem.id);
+		}
+	}
+
+	@command('git.graph.undoCommit', { repository: true })
+	async undoCommitIntoChangelist(repository: Repository, historyItem?: SourceControlHistoryItem): Promise<void> {
+		await undoCommitIntoChangelist(repository, historyItem?.id);
 	}
 
 	@command('git.cherryPickAbort', { repository: true })

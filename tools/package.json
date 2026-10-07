@@ -1,0 +1,23 @@
+{
+  "name": "git-extension-tools",
+  "private": true,
+  "description": "Local build, run and test tooling for the git extension sources in this repository. Not part of the extension.",
+  "scripts": {
+    "types": "node fetch-types.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node build.mjs",
+    "package": "node build.mjs --package",
+    "run": "node run.mjs",
+    "test": "node test.mjs"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/sinon": "^17.0.4",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
+    "mocha": "^11.7.1",
+    "sinon": "^21.0.0",
+    "typescript": "~5.9.3"
+  }
+}

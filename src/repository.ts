@@ -19,13 +19,15 @@ import { ForcePushMode, GitErrorCodes, RefType, Status } from './api/git.constan
 import { AutoFetcher } from './autofetch';
 import { GitBranchProtectionProvider, IBranchProtectionProviderRegistry } from './branchProtection';
 import { debounce, memoize, sequentialize, throttle } from './decorators';
-import { Repository as BaseRepository, BlameInformation, Commit, CommitShortStat, GitError, IDotGit, LogFileOptions, LsTreeElement, PullOptions, RefQuery, Stash, Submodule, Worktree } from './git';
+import { Repository as BaseRepository, BlameInformation, Commit, CommitDetails, CommitShortStat, GitError, IDotGit, LogFileOptions, LsTreeElement, PullOptions, RefQuery, ResetMode, Stash, Submodule, Worktree } from './git';
+import * as historyRewrite from './historyRewrite';
 import { GitHistoryProvider } from './historyProvider';
 import { Operation, OperationKind, OperationManager, OperationResult } from './operation';
 import { CommitCommandsCenter, IPostCommitCommandsProviderRegistry } from './postCommitCommands';
 import { IPushErrorHandlerRegistry } from './pushError';
 import { IRemoteSourcePublisherRegistry } from './remotePublisher';
 import { StatusBarCommands } from './statusbar';
+import { ChangelistGroups } from './changelists/changelistGroups';
 import { toGitUri } from './uri';
 import { anyEvent, combinedDisposable, debounceEvent, dispose, EmptyDisposable, eventToPromise, filterEvent, find, getCommitShortHash, IDisposable, isCopilotWorktreeFolder, isDescendant, isLinuxSnap, isRemote, isWindows, Limiter, onceEvent, pathEquals, relativePath } from './util';
 import { IFileWatcher, watch } from './watch';
@@ -605,7 +607,7 @@ class ResourceCommandResolver {
 				return { original: toGitUri(resource.original, 'HEAD') };
 
 			case Status.MODIFIED:
-				return { original: toGitUri(resource.resourceUri, '~') };
+				return { original: toGitUri(resource.resourceUri, 'HEAD') };
 
 			case Status.DELETED_BY_US:
 			case Status.DELETED_BY_THEM:
@@ -756,6 +758,8 @@ export class Repository implements Disposable {
 
 	private _untrackedGroup: SourceControlResourceGroup;
 	get untrackedGroup(): GitResourceGroup { return this._untrackedGroup as GitResourceGroup; }
+
+	readonly changelists: ChangelistGroups;
 
 	private _EMPTY_TREE: string | undefined;
 
@@ -920,6 +924,7 @@ export class Repository implements Disposable {
 		private readonly branchProtectionProviderRegistry: IBranchProtectionProviderRegistry,
 		historyItemDetailProviderRegistry: ISourceControlHistoryItemDetailsProviderRegistry,
 		private readonly globalState: Memento,
+		workspaceState: Memento,
 		private readonly logger: LogOutputChannel,
 		private telemetryReporter: TelemetryReporter,
 		private readonly repositoryCache: RepositoryCache
@@ -1020,6 +1025,21 @@ export class Repository implements Disposable {
 		this._indexGroup = this._sourceControl.createResourceGroup('index', l10n.t('Staged Changes'), { multiDiffEditorEnableViewChanges: true });
 		this._workingTreeGroup = this._sourceControl.createResourceGroup('workingTree', l10n.t('Changes'), { multiDiffEditorEnableViewChanges: true });
 		this._untrackedGroup = this._sourceControl.createResourceGroup('untracked', l10n.t('Untracked Changes'), { multiDiffEditorEnableViewChanges: true });
+
+		this.changelists = new ChangelistGroups({
+			root: this.repository.root,
+			git: this.repository,
+			workspaceState,
+			defaultGroup: () => this.workingTreeGroup,
+			untrackedGroup: () => this.untrackedGroup,
+			createGroup: (id, label) => this._sourceControl.createResourceGroup(id, label, { multiDiffEditorEnableViewChanges: true }),
+			recreateUntrackedGroup: () => this.recreateUntrackedGroup(),
+			asUntracked: resource => resource.clone(ResourceGroupType.Untracked),
+			applyDistribution: () => this.applyChangelists(),
+			operationInProgress: () => !!(this.mergeInProgress || this.rebaseCommit || this.cherryPickInProgress),
+			refreshStatus: () => this.status()
+		});
+		this.disposables.push({ dispose: () => this.changelists.dispose() });
 
 		const updateIndexGroupVisibility = () => {
 			const config = workspace.getConfiguration('git', root);
@@ -1458,23 +1478,30 @@ export class Repository implements Disposable {
 			await this.run(
 				Operation.Commit,
 				async () => {
-					if (opts.all) {
-						const addOpts = opts.all === 'tracked' ? { update: true } : {};
-						await this.repository.add([], addOpts);
+					const selectionIndex = await this.changelists.prepareIndex();
+
+					try {
+						if (opts.all && !selectionIndex) {
+							const addOpts = opts.all === 'tracked' ? { update: true } : {};
+							await this.repository.add([], addOpts);
+						}
+
+						delete opts.all;
+
+						if (opts.requireUserConfig === undefined || opts.requireUserConfig === null) {
+							const config = workspace.getConfiguration('git', Uri.file(this.root));
+							opts.requireUserConfig = config.get<boolean>('requireGitUserConfig');
+						}
+
+						// Add AI co-author trailer if applicable
+						message = await this.appendAICoAuthorTrailer(message, indexResources, workingGroupResources);
+
+						await this.repository.commit(message, opts, selectionIndex?.file);
+						await this.changelists.afterCommit(selectionIndex);
+						await this.commitOperationCleanup(message, indexResources, workingGroupResources);
+					} finally {
+						await selectionIndex?.dispose();
 					}
-
-					delete opts.all;
-
-					if (opts.requireUserConfig === undefined || opts.requireUserConfig === null) {
-						const config = workspace.getConfiguration('git', Uri.file(this.root));
-						opts.requireUserConfig = config.get<boolean>('requireGitUserConfig');
-					}
-
-					// Add AI co-author trailer if applicable
-					message = await this.appendAICoAuthorTrailer(message, indexResources, workingGroupResources);
-
-					await this.repository.commit(message, opts);
-					await this.commitOperationCleanup(message, indexResources, workingGroupResources);
 				},
 				() => this.commitOperationGetOptimisticResourceGroups(opts));
 
@@ -1553,6 +1580,10 @@ export class Repository implements Disposable {
 	}
 
 	private commitOperationGetOptimisticResourceGroups(opts: CommitOptions): GitResourceGroups {
+		if (this.changelists.hasPlan) {
+			return {};
+		}
+
 		let untrackedGroup: Resource[] | undefined = undefined,
 			workingTreeGroup: Resource[] | undefined = undefined;
 
@@ -2364,6 +2395,44 @@ export class Repository implements Disposable {
 		});
 	}
 
+	async resetTo(treeish: string, mode: ResetMode): Promise<void> {
+		await this.run(Operation.Reset, async () => {
+			await this.repository.resetTo(treeish, mode);
+
+			if (mode === 'hard') {
+				commands.executeCommand('_aiEdits.clearAllAiContributions');
+			}
+		});
+	}
+
+	getCommitDetails(ref: string): Promise<CommitDetails> {
+		return this.run(Operation.Show, () => this.repository.getCommitDetails(ref));
+	}
+
+	getRewriteSegment(first: string, last: string): Promise<string[]> {
+		return this.run(Operation.RevList, () => historyRewrite.getSegment(this.repository, first, last));
+	}
+
+	getRemoteBranchesContaining(commit: string): Promise<string[]> {
+		return this.run(Operation.Show, () => this.repository.getRemoteBranchesContaining(commit));
+	}
+
+	rewordCommit(commit: string, message: string): Promise<historyRewrite.RewriteResult> {
+		return this.run(Operation.Reset, () => historyRewrite.rewordCommit(this.repository, commit, message));
+	}
+
+	squashCommits(first: string, last: string, message: string): Promise<historyRewrite.RewriteResult> {
+		return this.run(Operation.Reset, () => historyRewrite.replaceSegment(this.repository, { first, last, message }));
+	}
+
+	dropCommit(commit: string): Promise<void> {
+		return this.run(Operation.Reset, () => historyRewrite.dropCommit(this.repository, commit));
+	}
+
+	undoLastCommit(): Promise<historyRewrite.UndoResult> {
+		return this.run(Operation.Reset, () => historyRewrite.undoLastCommit(this.repository));
+	}
+
 	async resetKeep(ref: string): Promise<void> {
 		await this.run(Operation.Reset, () => this.repository.resetKeep(ref));
 	}
@@ -3087,12 +3156,29 @@ export class Repository implements Disposable {
 		}
 	}
 
+	private recreateUntrackedGroup(): void {
+		const previous = this._untrackedGroup;
+		this._untrackedGroup = this._sourceControl.createResourceGroup('untracked', l10n.t('Untracked Changes'), { multiDiffEditorEnableViewChanges: true });
+		this._untrackedGroup.hideWhenEmpty = true;
+		this.disposables.push(this._untrackedGroup);
+		previous.dispose();
+	}
+
+	private applyChangelists(): void {
+		const distribution = this.changelists.distribute();
+		this.untrackedGroup.resourceStates = distribution.untracked;
+		this.workingTreeGroup.resourceStates = distribution.workingTree;
+		this.setCountBadge();
+	}
+
 	private _updateResourceGroupsState(resourcesGroups: GitResourceGroups): void {
 		// set resource groups
 		if (resourcesGroups.indexGroup) { this.indexGroup.resourceStates = resourcesGroups.indexGroup; }
 		if (resourcesGroups.mergeGroup) { this.mergeGroup.resourceStates = resourcesGroups.mergeGroup; }
-		if (resourcesGroups.untrackedGroup) { this.untrackedGroup.resourceStates = resourcesGroups.untrackedGroup; }
-		if (resourcesGroups.workingTreeGroup) { this.workingTreeGroup.resourceStates = resourcesGroups.workingTreeGroup; }
+		if (resourcesGroups.workingTreeGroup || resourcesGroups.untrackedGroup) {
+			this.changelists.input(resourcesGroups.workingTreeGroup, resourcesGroups.untrackedGroup);
+			this.applyChangelists();
+		}
 
 		// clear worktree migrating flag once all conflicts are resolved
 		if (this._isWorktreeMigrating && resourcesGroups.mergeGroup && resourcesGroups.mergeGroup.length === 0) {
@@ -3260,7 +3346,8 @@ export class Repository implements Disposable {
 		let count =
 			this.mergeGroup.resourceStates.length +
 			this.indexGroup.resourceStates.length +
-			this.workingTreeGroup.resourceStates.length;
+			this.workingTreeGroup.resourceStates.length +
+			this.changelists.customResourceCount();
 
 		switch (countBadge) {
 			case 'off': count = 0; break;

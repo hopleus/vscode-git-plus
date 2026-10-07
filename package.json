@@ -1188,6 +1188,85 @@
         "command": "git.repositories.stashCopyBranchName",
         "title": "%command.artifactCopyBranchName%",
         "category": "Git"
+      },
+      {
+        "command": "git.createChangelist",
+        "title": "%command.createChangelist%",
+        "category": "Git"
+      },
+      {
+        "command": "git.renameChangelist",
+        "title": "%command.renameChangelist%",
+        "category": "Git"
+      },
+      {
+        "command": "git.deleteChangelist",
+        "title": "%command.deleteChangelist%",
+        "category": "Git"
+      },
+      {
+        "command": "git.moveToChangelist",
+        "title": "%command.moveToChangelist%",
+        "category": "Git",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "git.moveChangelistFiles",
+        "title": "%command.moveChangelistFiles%",
+        "category": "Git"
+      },
+      {
+        "command": "git.moveHunkToChangelist",
+        "title": "%command.moveHunkToChangelist%",
+        "category": "Git"
+      },
+      {
+        "command": "git.moveHunkAtCursorToChangelist",
+        "title": "%command.moveHunkAtCursorToChangelist%",
+        "category": "Git"
+      },
+      {
+        "command": "git.moveChangeToChangelist",
+        "title": "%command.moveChangeToChangelist%",
+        "category": "Git",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "git.stageChangelist",
+        "title": "%command.stageChangelist%",
+        "category": "Git",
+        "icon": "$(add)",
+        "enablement": "!operationInProgress"
+      },
+      {
+        "command": "git.graph.editMessage",
+        "title": "%command.graphEditMessage%",
+        "category": "Git",
+        "enablement": "!operationInProgress"
+      },
+      {
+        "command": "git.graph.squash",
+        "title": "%command.graphSquash%",
+        "category": "Git",
+        "enablement": "!operationInProgress"
+      },
+      {
+        "command": "git.graph.drop",
+        "title": "%command.graphDrop%",
+        "category": "Git",
+        "enablement": "!operationInProgress"
+      },
+      {
+        "command": "git.graph.reset",
+        "title": "%command.graphReset%",
+        "category": "Git",
+        "enablement": "!operationInProgress"
+      },
+      {
+        "command": "git.graph.undoCommit",
+        "title": "%command.graphUndoCommit%",
+        "category": "Git",
+        "enablement": "!operationInProgress"
       }
     ],
     "continueEditSession": [
@@ -1216,6 +1295,12 @@
         "key": "ctrl+k ctrl+r",
         "mac": "cmd+k cmd+r",
         "when": "editorTextFocus && resourceScheme == file"
+      },
+      {
+        "command": "git.moveHunkAtCursorToChangelist",
+        "key": "ctrl+alt+h",
+        "mac": "cmd+alt+h",
+        "when": "editorTextFocus"
       }
     ],
     "menus": {
@@ -1919,6 +2004,46 @@
         {
           "command": "git.repositories.stashCopyBranchName",
           "when": "false"
+        },
+        {
+          "command": "git.moveToChangelist",
+          "when": "false"
+        },
+        {
+          "command": "git.moveChangelistFiles",
+          "when": "false"
+        },
+        {
+          "command": "git.moveHunkToChangelist",
+          "when": "false"
+        },
+        {
+          "command": "git.moveChangeToChangelist",
+          "when": "false"
+        },
+        {
+          "command": "git.stageChangelist",
+          "when": "false"
+        },
+        {
+          "command": "git.graph.editMessage",
+          "when": "false"
+        },
+        {
+          "command": "git.graph.squash",
+          "when": "false"
+        },
+        {
+          "command": "git.graph.drop",
+          "when": "false"
+        },
+        {
+          "command": "git.graph.reset",
+          "when": "false"
+        },
+        {
+          "command": "git.graph.undoCommit",
+          "when": "false"
         }
       ],
       "scm/title": [
@@ -2001,6 +2126,11 @@
           "command": "git.showOutput",
           "group": "3_footer",
           "when": "scmProvider == git"
+        },
+        {
+          "command": "git.createChangelist",
+          "when": "scmProvider == git",
+          "group": "5_changelist@1"
         }
       ],
       "scm/repositories/title": [
@@ -2311,11 +2441,6 @@
           "group": "inline@2"
         },
         {
-          "command": "git.stageAll",
-          "when": "scmProvider == git && scmResourceGroup == workingTree && config.git.untrackedChanges == mixed",
-          "group": "inline@2"
-        },
-        {
           "command": "git.cleanAllTracked",
           "when": "scmProvider == git && scmResourceGroup == workingTree && config.git.untrackedChanges != mixed",
           "group": "1_modification"
@@ -2327,11 +2452,6 @@
         },
         {
           "command": "git.cleanAllTracked",
-          "when": "scmProvider == git && scmResourceGroup == workingTree && config.git.untrackedChanges != mixed",
-          "group": "inline@2"
-        },
-        {
-          "command": "git.stageAllTracked",
           "when": "scmProvider == git && scmResourceGroup == workingTree && config.git.untrackedChanges != mixed",
           "group": "inline@2"
         },
@@ -2359,6 +2479,41 @@
           "command": "git.stageAllUntracked",
           "when": "scmProvider == git && scmResourceGroup == untracked",
           "group": "inline@2"
+        },
+        {
+          "command": "git.createChangelist",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
+          "group": "2_changelist@0"
+        },
+        {
+          "command": "git.renameChangelist",
+          "when": "scmProvider == git && scmResourceGroup =~ /^changelist:/",
+          "group": "2_changelist@2"
+        },
+        {
+          "command": "git.deleteChangelist",
+          "when": "scmProvider == git && scmResourceGroup =~ /^changelist:/",
+          "group": "2_changelist@3"
+        },
+        {
+          "command": "git.moveChangelistFiles",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
+          "group": "2_changelist@4"
+        },
+        {
+          "command": "git.moveChangelistFiles",
+          "when": "scmProvider == git && scmResourceGroup == untracked",
+          "group": "2_changelist@4"
+        },
+        {
+          "command": "git.stageChangelist",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
+          "group": "1_modification@0"
+        },
+        {
+          "command": "git.stageChangelist",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
+          "group": "inline@2"
         }
       ],
       "scm/resourceFolder/context": [
@@ -2384,27 +2539,27 @@
         },
         {
           "command": "git.stage",
-          "when": "scmProvider == git && scmResourceGroup == workingTree",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
           "group": "1_modification"
         },
         {
           "command": "git.clean",
-          "when": "scmProvider == git && scmResourceGroup == workingTree",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
           "group": "1_modification"
         },
         {
           "command": "git.clean",
-          "when": "scmProvider == git && scmResourceGroup == workingTree",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
           "group": "inline@2"
         },
         {
           "command": "git.stage",
-          "when": "scmProvider == git && scmResourceGroup == workingTree",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
           "group": "inline@2"
         },
         {
           "command": "git.ignore",
-          "when": "scmProvider == git && scmResourceGroup == workingTree",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
           "group": "1_modification@3"
         },
         {
@@ -2431,6 +2586,26 @@
           "command": "git.ignore",
           "when": "scmProvider == git && scmResourceGroup == untracked",
           "group": "1_modification@3"
+        },
+        {
+          "command": "git.moveToChangelist",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
+          "group": "inline@0"
+        },
+        {
+          "command": "git.moveToChangelist",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
+          "group": "2_changelist@1"
+        },
+        {
+          "command": "git.moveToChangelist",
+          "when": "scmProvider == git && scmResourceGroup == untracked",
+          "group": "inline@0"
+        },
+        {
+          "command": "git.moveToChangelist",
+          "when": "scmProvider == git && scmResourceGroup == untracked",
+          "group": "2_changelist@1"
         }
       ],
       "scm/resourceState/context": [
@@ -2541,77 +2716,77 @@
         },
         {
           "command": "git.openChange",
-          "when": "scmProvider == git && scmResourceGroup == workingTree",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
           "group": "navigation"
         },
         {
           "command": "git.openHEADFile",
-          "when": "scmProvider == git && scmResourceGroup == workingTree",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
           "group": "navigation"
         },
         {
           "command": "git.openFile",
-          "when": "scmProvider == git && scmResourceGroup == workingTree",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
           "group": "navigation"
         },
         {
           "command": "git.stage",
-          "when": "scmProvider == git && scmResourceGroup == workingTree",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
           "group": "1_modification"
         },
         {
           "command": "git.clean",
-          "when": "scmProvider == git && scmResourceGroup == workingTree",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
           "group": "1_modification"
         },
         {
           "command": "git.clean",
-          "when": "scmProvider == git && scmResourceGroup == workingTree",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
           "group": "inline@2"
         },
         {
           "command": "git.stage",
-          "when": "scmProvider == git && scmResourceGroup == workingTree",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
           "group": "inline@2"
         },
         {
           "command": "git.compareWithWorkspace",
-          "when": "scmProvider == git && scmResourceGroup == workingTree && scmResourceState == worktree",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/) && scmResourceState == worktree",
           "group": "worktree_diff"
         },
         {
           "command": "git.openFile2",
-          "when": "scmProvider == git && scmResourceGroup == workingTree && config.git.showInlineOpenFileAction && config.git.openDiffOnClick",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/) && config.git.showInlineOpenFileAction && config.git.openDiffOnClick",
           "group": "inline@1"
         },
         {
           "command": "git.openChange",
-          "when": "scmProvider == git && scmResourceGroup == workingTree && config.git.showInlineOpenFileAction && !config.git.openDiffOnClick",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/) && config.git.showInlineOpenFileAction && !config.git.openDiffOnClick",
           "group": "inline@1"
         },
         {
           "command": "git.ignore",
-          "when": "scmProvider == git && scmResourceGroup == workingTree",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
           "group": "1_modification@3"
         },
         {
           "command": "git.revealFileInOS.linux",
-          "when": "scmProvider == git && scmResourceGroup == workingTree && remoteName == '' && isLinux",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/) && remoteName == '' && isLinux",
           "group": "2_view@1"
         },
         {
           "command": "git.revealFileInOS.mac",
-          "when": "scmProvider == git && scmResourceGroup == workingTree && remoteName == '' && isMac",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/) && remoteName == '' && isMac",
           "group": "2_view@1"
         },
         {
           "command": "git.revealFileInOS.windows",
-          "when": "scmProvider == git && scmResourceGroup == workingTree && remoteName == '' && isWindows",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/) && remoteName == '' && isWindows",
           "group": "2_view@1"
         },
         {
           "command": "git.revealInExplorer",
-          "when": "scmProvider == git && scmResourceGroup == workingTree",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
           "group": "2_view@2"
         },
         {
@@ -2663,6 +2838,31 @@
           "command": "git.ignore",
           "when": "scmProvider == git && scmResourceGroup == untracked",
           "group": "1_modification@3"
+        },
+        {
+          "command": "git.moveToChangelist",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
+          "group": "inline@0"
+        },
+        {
+          "command": "git.moveToChangelist",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
+          "group": "2_changelist@1"
+        },
+        {
+          "command": "git.createChangelist",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup =~ /^changelist:/)",
+          "group": "2_changelist@0"
+        },
+        {
+          "command": "git.moveToChangelist",
+          "when": "scmProvider == git && scmResourceGroup == untracked",
+          "group": "inline@0"
+        },
+        {
+          "command": "git.moveToChangelist",
+          "when": "scmProvider == git && scmResourceGroup == untracked",
+          "group": "2_changelist@1"
         }
       ],
       "scm/history/title": [
@@ -2732,6 +2932,31 @@
           "command": "git.copyCommitMessage",
           "when": "scmProvider == git && !listMultiSelection",
           "group": "9_copy@2"
+        },
+        {
+          "command": "git.graph.undoCommit",
+          "when": "scmProvider == git && scmHistoryItemHasCurrentHistoryItemRef && !listMultiSelection",
+          "group": "4_rewrite@0"
+        },
+        {
+          "command": "git.graph.editMessage",
+          "when": "scmProvider == git && !listMultiSelection",
+          "group": "4_rewrite@1"
+        },
+        {
+          "command": "git.graph.squash",
+          "when": "scmProvider == git && !listMultiSelection",
+          "group": "4_rewrite@2"
+        },
+        {
+          "command": "git.graph.drop",
+          "when": "scmProvider == git && !listMultiSelection",
+          "group": "4_rewrite@3"
+        },
+        {
+          "command": "git.graph.reset",
+          "when": "scmProvider == git && !listMultiSelection",
+          "group": "4_modify@2"
         }
       ],
       "scm/historyItemRef/context": [
@@ -2890,16 +3115,17 @@
       ],
       "scm/change/title": [
         {
-          "command": "git.stageChange",
-          "when": "config.git.enabled && !git.missing && originalResource =~ /^git\\:.*%22ref%22%3A%22%22%7D$/"
-        },
-        {
           "command": "git.revertChange",
           "when": "config.git.enabled && !git.missing && originalResource =~ /^git\\:.*%22ref%22%3A%22%22%7D$/"
         },
         {
           "command": "git.unstageChange",
           "when": "false"
+        },
+        {
+          "command": "git.moveChangeToChangelist",
+          "when": "config.git.enabled && !git.missing && originalResource =~ /^git\\:/",
+          "group": "inline@1"
         }
       ],
       "timeline/item/context": [
@@ -4154,6 +4380,16 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "%config.showReferenceDetails%"
+        },
+        "git.defaultChangelistName": {
+          "type": "string",
+          "default": "Changes",
+          "description": "%config.defaultChangelistName%"
+        },
+        "git.hunkCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.hunkCodeLens%"
         }
       }
     },
@@ -4280,7 +4516,8 @@
       },
       "[git-rebase]": {
         "workbench.editor.restoreViewState": false
-      }
+      },
+      "diffEditor.codeLens": true
     },
     "viewsWelcome": [
       {
