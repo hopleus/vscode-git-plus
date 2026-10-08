@@ -7,6 +7,8 @@
 
 It uses proposed VS Code APIs and is distributed as a `.vsix` through [GitHub Releases](../../releases). See [INSTALL.md](INSTALL.md) for installation and updates.
 
+![Changelists in Source Control, with a hunk-level CodeLens in the editor](docs/images/changelists.png)
+
 ---
 
 # Git integration for Visual Studio Code
