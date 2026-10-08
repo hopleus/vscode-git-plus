@@ -71,6 +71,7 @@ function writeManifest() {
 	if (withUpdater) {
 		const configuration = Array.isArray(derived.contributes.configuration) ? derived.contributes.configuration[0] : derived.contributes.configuration;
 		configuration.properties['gitPlus.checkForUpdates'] = updateSetting;
+		derived.contributes.commands.push({ command: 'gitPlus.checkForUpdates', title: 'Check for Updates', category: 'Git Plus' });
 	}
 	writeFileSync(join(extensionDir, 'package.json'), JSON.stringify(derived, null, 2));
 	writeFileSync(join(extensionDir, '.vscodeignore'), '**/*.map\n');

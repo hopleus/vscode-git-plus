@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { DecorationOptions, l10n, Position, Range, TextEditor, TextEditorChange, TextEditorDecorationType, TextEditorChangeKind, ThemeColor, Uri, window, workspace, EventEmitter, ConfigurationChangeEvent, StatusBarItem, StatusBarAlignment, Command, MarkdownString, languages, HoverProvider, CancellationToken, Hover, TextDocument } from 'vscode';
+import { DecorationOptions, l10n, Position, Range, TextEditor, TextEditorChange, TextEditorDecorationType, TextEditorChangeKind, ThemeColor, Uri, window, workspace, EventEmitter, ConfigurationChangeEvent, StatusBarItem, StatusBarAlignment, Command, MarkdownString, languages, HoverProvider, CancellationToken, Hover, TextDocument, commands } from 'vscode';
 import { Model } from './model';
 import { dispose, fromNow, getCommitShortHash, IDisposable, truncate } from './util';
 import { Repository } from './repository';
@@ -177,6 +177,7 @@ export class GitBlameController {
 	private readonly _repositoryBlameCache = new GitBlameInformationCache();
 
 	private _editorDecoration: GitBlameEditorDecoration | undefined;
+	private _annotation: GitBlameAnnotation | undefined;
 	private _statusBarItem: GitBlameStatusBarItem | undefined;
 
 	private _repositoryDisposables = new Map<Repository, IDisposable[]>();
@@ -186,6 +187,57 @@ export class GitBlameController {
 	constructor(private readonly _model: Model) {
 		workspace.onDidChangeConfiguration(this._onDidChangeConfiguration, this, this._disposables);
 		this._onDidChangeConfiguration();
+
+		this._annotation = new GitBlameAnnotation(this);
+		this._disposables.push(this._annotation);
+	}
+
+	async getFileBlameInformation(textEditor: TextEditor): Promise<(BlameInformation | string | undefined)[] | undefined> {
+		const uri = textEditor.document.uri;
+		if (!isResourceSchemeSupported(uri)) {
+			return undefined;
+		}
+
+		const repository = this._model.getRepository(uri);
+		if (!repository) {
+			return undefined;
+		}
+
+		await ensureEmojis();
+
+		let resourceBlameInformation: BlameInformation[] | undefined;
+		if (!isGitUri(uri)) {
+			resourceBlameInformation = await repository.blameContents(uri.fsPath, textEditor.document.getText());
+		} else {
+			const { ref } = fromGitUri(uri);
+			if (ref === '') {
+				resourceBlameInformation = await repository.blameContents(uri.fsPath, textEditor.document.getText());
+			} else {
+				const commit = /^[0-9a-f]{40}$/i.test(ref) ? ref : repository.HEAD?.commit;
+				resourceBlameInformation = commit ? await this._getBlameInformation(uri, commit) : undefined;
+			}
+		}
+
+		if (!resourceBlameInformation) {
+			return undefined;
+		}
+
+		const byLine = new Map<number, BlameInformation>();
+		for (const info of resourceBlameInformation) {
+			for (const range of info.ranges) {
+				for (let line = range.startLineNumber; line <= range.endLineNumber; line++) {
+					byLine.set(line, info);
+				}
+			}
+		}
+
+		const result: (BlameInformation | string | undefined)[] = [];
+		for (let lineNumber = 0; lineNumber < textEditor.document.lineCount; lineNumber++) {
+			const info = byLine.get(lineNumber + 1);
+			result.push(info && /^0+$/.test(info.hash) ? l10n.t('Not Committed Yet') : info);
+		}
+
+		return result;
 	}
 
 	formatBlameInformationMessage(documentUri: Uri, template: string, blameInformation: BlameInformation): string {
@@ -668,6 +720,208 @@ class GitBlameEditorDecoration implements HoverProvider {
 		this._hoverDisposable?.dispose();
 		this._hoverDisposable = undefined;
 
+		this._disposables = dispose(this._disposables);
+	}
+}
+
+class GitBlameAnnotation implements HoverProvider {
+	private readonly _columnWidth = 34;
+	private readonly _decoration: TextEditorDecorationType;
+	private readonly _lineDecoration: TextEditorDecorationType;
+	private _lineHighlighted = false;
+	private readonly _annotated = new Set<string>();
+	private readonly _lines = new Map<string, (BlameInformation | string | undefined)[]>();
+	private _version = 0;
+	private _disposables: IDisposable[] = [];
+
+	constructor(private readonly _controller: GitBlameController) {
+		this._decoration = window.createTextEditorDecorationType({});
+		this._lineDecoration = window.createTextEditorDecorationType({
+			isWholeLine: true,
+			backgroundColor: new ThemeColor('editor.lineHighlightBackground'),
+			border: '1px solid',
+			borderColor: new ThemeColor('editor.lineHighlightBorder')
+		});
+		this._disposables.push(this._decoration, this._lineDecoration);
+
+		this._disposables.push(
+			commands.registerCommand('git.blame.annotate', (arg?: { uri?: Uri }) => this._toggle(arg?.uri)),
+			commands.registerCommand('git.blame.closeAnnotations', (arg?: { uri?: Uri }) => this._toggle(arg?.uri)),
+			commands.registerCommand('git.blame.toggleAnnotations', (arg?: { uri?: Uri }) => this._toggle(arg?.uri)),
+			languages.registerHoverProvider([{ scheme: 'file' }, { scheme: 'git' }], this),
+			window.onDidChangeActiveTextEditor(() => this._updateContext()),
+			window.onDidChangeVisibleTextEditors(() => { this._updateContext(); this._refresh(); }),
+			workspace.onDidChangeConfiguration(e => e.affectsConfiguration('git.blame.annotation.dateFormat') && this._refresh()),
+			window.onDidChangeTextEditorVisibleRanges(() => this._clearLineHighlight()),
+			window.onDidChangeTextEditorSelection(() => this._clearLineHighlight()),
+			window.onDidChangeTextEditorDiffInformation(() => this._refresh()),
+			workspace.onDidCloseTextDocument(d => this._close(d.uri.toString()))
+		);
+	}
+
+	private _toggle(uri?: Uri): void {
+		const key = (uri ?? window.activeTextEditor?.document.uri)?.toString();
+		if (!key) {
+			return;
+		}
+
+		if (this._annotated.has(key)) {
+			this._close(key);
+		} else {
+			this._annotated.add(key);
+		}
+
+		this._updateContext(key);
+		this._refresh();
+	}
+
+	private _close(key: string): void {
+		this._annotated.delete(key);
+		this._lines.delete(key);
+		for (const editor of window.visibleTextEditors) {
+			if (editor.document.uri.toString() === key) {
+				editor.setDecorations(this._decoration, []);
+			}
+		}
+		this._updateContext();
+	}
+
+	private _updateContext(_key?: string): void {
+		const keys = [...this._annotated];
+		commands.executeCommand('setContext', 'git.blame.annotated.file', keys.some(k => k.startsWith('file:')));
+		commands.executeCommand('setContext', 'git.blame.annotated.git', keys.some(k => k.startsWith('git:')));
+	}
+
+	private async _refresh(): Promise<void> {
+		const version = ++this._version;
+
+		for (const editor of window.visibleTextEditors) {
+			const key = editor.document.uri.toString();
+			if (!this._annotated.has(key)) {
+				continue;
+			}
+
+			const lines = await this._controller.getFileBlameInformation(editor);
+			if (version !== this._version || !this._annotated.has(key)) {
+				return;
+			}
+
+			if (!lines) {
+				editor.setDecorations(this._decoration, []);
+				continue;
+			}
+
+			this._lines.set(key, lines);
+			this._render(editor);
+		}
+	}
+
+	private _render(editor: TextEditor): void {
+		const key = editor.document.uri.toString();
+		const lines = this._lines.get(key);
+		if (!lines || !this._annotated.has(key)) {
+			return;
+		}
+
+		const levels = 6;
+		const times = lines.map(l => l !== undefined && typeof l !== 'string' ? new Date(l.authorDate ?? 0).getTime() : undefined);
+		const distinct = [...new Set(times.filter((t): t is number => t !== undefined))].sort((a, b) => a - b);
+		const levelOf = (t: number) => distinct.length < 2 ? levels - 1 : Math.round(distinct.indexOf(t) / (distinct.length - 1) * (levels - 1));
+
+		editor.setDecorations(this._decoration, lines.map((info, line) => {
+			const t = times[line];
+			return this._createDecoration(line, info, t === undefined ? undefined : levelOf(t), levels);
+		}));
+	}
+
+	private _formatDate(date: Date): string {
+		const format = workspace.getConfiguration('git').get<string>('blame.annotation.dateFormat', 'system');
+		if (format === 'system') {
+			return date.toLocaleDateString();
+		}
+
+		const dd = String(date.getDate()).padStart(2, '0');
+		const MM = String(date.getMonth() + 1).padStart(2, '0');
+		const yyyy = String(date.getFullYear());
+
+		return format.replace('dd', dd).replace('MM', MM).replace('yyyy', yyyy);
+	}
+
+	private _getLineHeight(): number {
+		const config = workspace.getConfiguration('editor');
+		const fontSize = config.get<number>('fontSize', 12);
+		const lineHeight = config.get<number>('lineHeight', 0);
+
+		if (lineHeight === 0) {
+			return Math.round(1.5 * fontSize);
+		}
+
+		return lineHeight < 8 ? Math.round(lineHeight * fontSize) : lineHeight;
+	}
+
+	private _createDecoration(line: number, info: BlameInformation | string | undefined, level: number | undefined, levels: number): DecorationOptions {
+		let text = '';
+		let backgroundColor: string | undefined;
+		if (info !== undefined && typeof info !== 'string') {
+			const alpha = 0.05 + 0.45 * ((level ?? 0) / (levels - 1));
+			backgroundColor = `rgba(70, 140, 255, ${alpha.toFixed(3)})`;
+			const date = this._formatDate(new Date(info.authorDate ?? new Date()));
+			text = `${date} ${truncate(info.authorName ?? '', 18)}`;
+		}
+
+		const contentText = text.padEnd(this._columnWidth, ' ').replace(/ /g, '\u00a0');
+
+		return {
+			range: new Range(line, 0, line, 0),
+			renderOptions: {
+				before: {
+					contentText,
+					color: new ThemeColor('editor.foreground'),
+					backgroundColor,
+					margin: '0 16px 0 0',
+					textDecoration: `none; display: inline-block; vertical-align: top; height: ${this._getLineHeight()}px; line-height: ${this._getLineHeight()}px; padding-left: 6px; border-right: 1px solid rgba(128, 128, 128, 0.25)`
+				}
+			}
+		};
+	}
+
+	private _clearLineHighlight(): void {
+		this._lineHighlighted = false;
+		for (const editor of window.visibleTextEditors) {
+			editor.setDecorations(this._lineDecoration, []);
+		}
+	}
+
+	private _highlightLine(document: TextDocument, line: number): void {
+		this._clearLineHighlight();
+		for (const editor of window.visibleTextEditors) {
+			if (editor.document === document) {
+				editor.setDecorations(this._lineDecoration, [new Range(line, 0, line, 0)]);
+			}
+		}
+		this._lineHighlighted = true;
+	}
+
+	async provideHover(document: TextDocument, position: Position, token: CancellationToken): Promise<Hover | undefined> {
+		const info = this._lines.get(document.uri.toString())?.[position.line];
+		if (position.character !== 0 || !info || typeof info === 'string') {
+			if (this._lineHighlighted) {
+				this._clearLineHighlight();
+			}
+			return undefined;
+		}
+
+		this._highlightLine(document, position.line);
+
+		const contents = await this._controller.getBlameInformationHover(document.uri, info);
+		if (!contents || token.isCancellationRequested) {
+			return undefined;
+		}
+
+		return { contents: [contents] };
+	}
+
+	dispose() {
 		this._disposables = dispose(this._disposables);
 	}
 }

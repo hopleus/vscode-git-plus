@@ -2610,6 +2610,14 @@ export class Repository implements Disposable {
 		});
 	}
 
+	async blameContents(path: string, contents: string): Promise<BlameInformation[] | undefined> {
+		return await this.run(Operation.Blame(false), () => {
+			const config = workspace.getConfiguration('git', Uri.file(this.root));
+			const ignoreWhitespace = config.get<boolean>('blame.ignoreWhitespace', false);
+			return this.repository.blameContents(path, contents, ignoreWhitespace);
+		});
+	}
+
 	@throttle
 	sync(head: Branch, rebase: boolean): Promise<void> {
 		return this._sync(head, rebase);

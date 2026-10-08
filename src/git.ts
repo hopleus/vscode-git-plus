@@ -2901,6 +2901,25 @@ export class Repository {
 		}
 	}
 
+	async blameContents(path: string, contents: string, ignoreWhitespace?: boolean): Promise<BlameInformation[] | undefined> {
+		try {
+			const args = ['-c', 'i18n.logOutputEncoding=UTF-8', 'blame', '--root', '--incremental'];
+
+			if (ignoreWhitespace) {
+				args.push('-w');
+			}
+
+			args.push('--contents', '-', '--', this.sanitizeRelativePath(path));
+
+			const result = await this.exec(args, { input: contents });
+
+			return parseGitBlame(result.stdout.trim());
+		}
+		catch (err) {
+			return undefined;
+		}
+	}
+
 	async createStash(message?: string, includeUntracked?: boolean, staged?: boolean): Promise<void> {
 		try {
 			const args = ['stash', 'push'];

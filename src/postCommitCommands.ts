@@ -58,18 +58,33 @@ export class GitPostCommitCommandsProvider implements PostCommitCommandsProvider
 				l10n.t('Committing to New Branch & Synchronizing Changes...');
 		}
 
-		return [
+		const result: Command[] = [
 			{
 				command: 'git.push',
 				title: l10n.t('{0} Commit & Push', icon ?? '$(arrow-up)'),
 				tooltip: pushCommandTooltip
 			},
+		];
+
+		if (config.get<boolean>('allowForcePush')) {
+			result.push({
+				command: 'git.pushForce',
+				title: l10n.t('{0} Commit & Push (Force)', icon ?? '$(arrow-up)'),
+				tooltip: !alwaysCommitToNewBranch ?
+					l10n.t('Commit & Force Push Changes') :
+					l10n.t('Commit to New Branch & Force Push Changes')
+			});
+		}
+
+		result.push(
 			{
 				command: 'git.sync',
 				title: l10n.t('{0} Commit & Sync', icon ?? '$(sync)'),
 				tooltip: syncCommandTooltip
 			},
-		];
+		);
+
+		return result;
 	}
 }
 

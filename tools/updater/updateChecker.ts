@@ -124,6 +124,20 @@ export class UpdateChecker {
 		return release;
 	}
 
+	async checkNow(): Promise<void> {
+		await this.context.globalState.update(LAST_CHECK_KEY, this.now());
+
+		const release = await this.fetchRelease(this.repository).catch(() => undefined);
+
+		if (!release) {
+			await window.showWarningMessage(l10n.t('Could not check for Git Plus updates.'));
+		} else if (isNewerVersion(release.version, this.installedVersion)) {
+			await this.announce(release);
+		} else {
+			await window.showInformationMessage(l10n.t('Git Plus is up to date ({0}).', this.installedVersion));
+		}
+	}
+
 	private isEnabled(): boolean {
 		return workspace.getConfiguration(CHECK_SETTING_SECTION).get<boolean>(CHECK_SETTING_KEY, true);
 	}
@@ -156,5 +170,8 @@ export class UpdateChecker {
 export function startUpdateChecker(context: ExtensionContext, repository: string): void {
 	const checker = new UpdateChecker(context, repository, context.extension.packageJSON.version);
 	checker.start();
-	context.subscriptions.push({ dispose: () => checker.dispose() });
+	context.subscriptions.push(
+		{ dispose: () => checker.dispose() },
+		commands.registerCommand('gitPlus.checkForUpdates', () => checker.checkNow())
+	);
 }

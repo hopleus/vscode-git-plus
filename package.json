@@ -1004,6 +1004,21 @@
         "category": "Git"
       },
       {
+        "command": "git.blame.annotate",
+        "title": "%command.blameAnnotate%",
+        "category": "Git"
+      },
+      {
+        "command": "git.blame.closeAnnotations",
+        "title": "%command.blameCloseAnnotations%",
+        "category": "Git"
+      },
+      {
+        "command": "git.blame.toggleAnnotations",
+        "title": "%command.blameToggleAnnotations%",
+        "category": "Git"
+      },
+      {
         "command": "git.blame.toggleEditorDecoration",
         "title": "%command.blameToggleEditorDecoration%",
         "category": "Git"
@@ -3044,6 +3059,23 @@
           "when": "config.git.enabled && !git.missing && gitOpenRepositoryCount != 0 && isInDiffEditor && isInDiffRightEditor && !isEmbeddedDiffEditor && resourceScheme == file && !isSessionsWindow"
         }
       ],
+      "editor/lineNumber/context": [
+        {
+          "command": "git.blame.annotate",
+          "group": "2_git@10",
+          "when": "config.git.enabled && !git.missing && gitOpenRepositoryCount != 0 && !isInDiffEditor && !git.blame.annotated.file"
+        },
+        {
+          "command": "git.blame.closeAnnotations",
+          "group": "2_git@10",
+          "when": "config.git.enabled && !git.missing && gitOpenRepositoryCount != 0 && !isInDiffEditor && git.blame.annotated.file"
+        },
+        {
+          "command": "git.blame.toggleAnnotations",
+          "group": "2_git@10",
+          "when": "config.git.enabled && !git.missing && gitOpenRepositoryCount != 0 && isInDiffEditor"
+        }
+      ],
       "editor/context": [
         {
           "command": "git.stageSelectedRanges",
@@ -4323,6 +4355,17 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "%config.blameEditorDecoration.disableHover%"
+        },
+        "git.blame.annotation.dateFormat": {
+          "type": "string",
+          "enum": [
+            "dd.MM.yyyy",
+            "yyyy-MM-dd",
+            "MM/dd/yyyy",
+            "system"
+          ],
+          "default": "system",
+          "markdownDescription": "%config.blameAnnotationDateFormat%"
         },
         "git.blame.statusBarItem.enabled": {
           "type": "boolean",
