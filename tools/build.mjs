@@ -90,6 +90,16 @@ export async function buildExtension() {
 		},
 		outdir: distDir,
 	});
+	await build({
+		bundle: true,
+		platform: 'browser',
+		format: 'iife',
+		target: 'es2022',
+		minify: true,
+		nodePaths: [join(tools, 'node_modules')],
+		entryPoints: { messageEditor: join(tools, 'webview', 'messageEditor.client.ts') },
+		outdir: join(distDir, 'webview'),
+	});
 	copyNonTypeScript(srcDir);
 	cpSync(join(root, 'resources'), join(extensionDir, 'resources'), { recursive: true });
 	cpSync(join(root, 'package.nls.json'), join(extensionDir, 'package.nls.json'));

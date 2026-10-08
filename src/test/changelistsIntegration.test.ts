@@ -1082,7 +1082,7 @@ suite('changelists integration', function () {
 			let onMessage: (message: unknown) => void = () => undefined;
 			let onDispose: () => void = () => undefined;
 			const panel = {
-				webview: { html: '', onDidReceiveMessage: (listener: (message: unknown) => void) => { onMessage = listener; } },
+				webview: { html: '', cspSource: 'vscode-resource:', asWebviewUri: (uri: Uri) => uri, onDidReceiveMessage: (listener: (message: unknown) => void) => { onMessage = listener; } },
 				onDidDispose: (listener: () => void) => { onDispose = listener; },
 				dispose: sinon.spy(() => onDispose())
 			};
@@ -1131,7 +1131,7 @@ suite('changelists integration', function () {
 			assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt; &amp; more'));
 			assert.ok(html.includes('&lt;b&gt;Title&lt;/b&gt;'));
 			assert.ok(!html.includes('<script>alert(1)'));
-			const nonce = /script-src 'nonce-([^']+)'/.exec(html)![1];
+			const nonce = /script-src [^;]*'nonce-([^']+)'/.exec(html)![1];
 			assert.ok(html.includes(`<script nonce="${nonce}">`));
 			assert.ok(fake.create.calledOnce);
 			fake.close();
