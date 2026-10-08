@@ -2,7 +2,7 @@
 
 Git Plus is a build of the Git extension that ships with VS Code, extended with changelists, hunk-level commits and history rewriting in the Source Control Graph. It uses proposed VS Code APIs, so it cannot be published to the Marketplace and is distributed as a `.vsix` file through [GitHub Releases](../../releases).
 
-Requires VS Code 1.141 or newer and Git 2.25 or newer.
+Requires VS Code 1.140 or newer and Git 2.25 or newer.
 
 ## Install
 
