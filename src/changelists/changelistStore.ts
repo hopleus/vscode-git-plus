@@ -162,7 +162,7 @@ export class ChangelistStore {
 		return this.getLists().filter(list => sourceListIds.length === 0 || sourceListIds.some(id => id !== list.id));
 	}
 
-	reconcile(changes: readonly ChangeRef[]): boolean {
+	reconcile(changes: readonly ChangeRef[], keep: ReadonlySet<string> = new Set()): boolean {
 		let changed = false;
 		const present = new Set<string>();
 
@@ -180,7 +180,7 @@ export class ChangelistStore {
 		}
 
 		for (const path of [...this.assignments.keys()]) {
-			if (!present.has(path)) {
+			if (!present.has(path) && !keep.has(path)) {
 				this.assignments.delete(path);
 				changed = true;
 			}

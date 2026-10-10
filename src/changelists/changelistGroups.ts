@@ -25,6 +25,7 @@ export interface ChangelistGroupsHost {
 	readonly workspaceState: Memento;
 	defaultGroup(): SourceControlResourceGroup;
 	untrackedGroup(): SourceControlResourceGroup;
+	stagedPaths(): readonly string[];
 	createGroup(id: string, label: string): SourceControlResourceGroup;
 	recreateUntrackedGroup(): void;
 	asUntracked(resource: Resource): Resource;
@@ -139,8 +140,10 @@ export class ChangelistGroups {
 			.filter(r => r.type === Status.UNTRACKED)
 			.map(r => this.host.asUntracked(r));
 
-		this.store.reconcile(tracked.map(r => this.refOf(r)));
-		this.assignments.retainPaths(new Set(tracked.map(r => this.relative(r.resourceUri.fsPath))));
+		const staged = new Set(this.host.stagedPaths().map(p => this.relative(p)));
+
+		this.store.reconcile(tracked.map(r => this.refOf(r)), staged);
+		this.assignments.retainPaths(new Set([...tracked.map(r => this.relative(r.resourceUri.fsPath)), ...staged]));
 		this.syncLayout();
 
 		const perList = new Map<string, Resource[]>(this.store.getLists().map(l => [l.id, []]));
@@ -468,16 +471,6 @@ export class ChangelistGroups {
 
 	owns(group: SourceControlResourceGroup): boolean {
 		return this.host.defaultGroup() === group || this.host.untrackedGroup() === group || [...this.groups.values()].includes(group);
-	}
-
-	customResourceCount(): number {
-		let count = 0;
-
-		for (const group of this.groups.values()) {
-			count += group.resourceStates.length;
-		}
-
-		return count;
 	}
 
 	private syncLayout(): void {

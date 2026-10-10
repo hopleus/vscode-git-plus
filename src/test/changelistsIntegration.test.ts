@@ -833,6 +833,29 @@ suite('changelists integration', function () {
 			fs.rmSync(path.join(root, 'adopt-me.txt'));
 		});
 
+		test('move to changelist accepts a folder node and a whole unversioned group', async () => {
+			const target = createList('From folder');
+			write('tree-dir/one.txt', '1\n');
+			write('tree-dir/deep/two.txt', '2\n');
+			write('tree-other.txt', '3\n');
+			await waitFor(() => unversioned().includes('tree-dir/one.txt') && unversioned().includes('tree-dir/deep/two.txt') && unversioned().includes('tree-other.txt'), 'new tree is unversioned');
+			const handlers = createChangelistCommands(model, prompts({ showQuickPick: pickById(target) }));
+
+			await handlers.moveToChangelist({ resourceUri: Uri.file(path.join(root, 'tree-dir')) });
+			await waitFor(() => pathsOf(target).length === 2, 'folder content adopted');
+			assert.deepStrictEqual(pathsOf(target), ['tree-dir/deep/two.txt', 'tree-dir/one.txt']);
+			assert.ok(!unversioned().some(p => p.startsWith('tree-dir/')) && unversioned().includes('tree-other.txt'));
+
+			await handlers.moveToChangelist(repository.untrackedGroup);
+			await waitFor(() => pathsOf(target).includes('tree-other.txt'), 'group content adopted');
+
+			git('rm', '-q', '--cached', '-r', 'tree-dir', 'tree-other.txt', 'new.txt');
+			fs.rmSync(path.join(root, 'tree-dir'), { recursive: true });
+			fs.rmSync(path.join(root, 'tree-other.txt'));
+			repository.changelists.deleteList(target);
+			await waitFor(() => lists().length === 1, 'From folder deleted');
+		});
+
 		test('move to changelist without a changed file selection informs the user', async () => {
 			const informed: string[] = [];
 			const handlers = createChangelistCommands(model, prompts({ showInformationMessage: async (message: string) => { informed.push(message); } }));
@@ -1136,6 +1159,116 @@ suite('changelists integration', function () {
 			assert.ok(fake.create.calledOnce);
 			fake.close();
 		});
+	});
+
+	test('+ on an unversioned file adds it to Changes without staging it, and the other changelists stay', async function () {
+		const other = createList('Keep me');
+		write('b.txt', 'b-kept\n');
+		await waitFor(() => pathsOf(DEFAULT_CHANGELIST_ID).includes('b.txt'), 'b.txt changed');
+		await repository.changelists.moveFiles(['b.txt'], other);
+		write('plus-me.txt', 'p\n');
+		await waitFor(() => unversioned().includes('plus-me.txt') && pathsOf(other).includes('b.txt'), 'inputs ready');
+
+		await commands.executeCommand('git.stage', repository.untrackedGroup.resourceStates.find(r => r.resourceUri.fsPath.endsWith('plus-me.txt')));
+		await waitFor(() => pathsOf(DEFAULT_CHANGELIST_ID).includes('plus-me.txt'), 'plus-me.txt in Changes');
+
+		assert.strictEqual(git('diff', '--cached', '--name-only').trim(), '', 'nothing is staged');
+		assert.ok(!unversioned().includes('plus-me.txt'));
+		assert.deepStrictEqual(pathsOf(other), ['b.txt'], 'the other changelist is untouched');
+
+		git('rm', '-q', '--cached', 'plus-me.txt');
+		fs.rmSync(path.join(root, 'plus-me.txt'));
+		git('checkout', '--', 'b.txt');
+		repository.changelists.deleteList(other);
+		await waitFor(() => lists().length === 1 && pathsOf(DEFAULT_CHANGELIST_ID).length === 0, 'cleaned up');
+	});
+
+	test('Stage All on the unversioned group adds files to Changes and leaves staging and other changelists alone', async function () {
+		const other = createList('Keep me too');
+		write('c.txt', 'c-kept\n');
+		await waitFor(() => pathsOf(DEFAULT_CHANGELIST_ID).includes('c.txt'), 'c.txt changed');
+		await repository.changelists.moveFiles(['c.txt'], other);
+		write('all-one.txt', '1\n');
+		write('all-dir/two.txt', '2\n');
+		await waitFor(() => unversioned().includes('all-one.txt') && unversioned().includes('all-dir/two.txt') && pathsOf(other).includes('c.txt'), 'inputs ready');
+
+		await commands.executeCommand('git.stageAllUntracked', repository.sourceControl);
+		await waitFor(() => pathsOf(DEFAULT_CHANGELIST_ID).includes('all-one.txt') && pathsOf(DEFAULT_CHANGELIST_ID).includes('all-dir/two.txt'), 'new files in Changes');
+
+		assert.strictEqual(git('diff', '--cached', '--name-only').trim(), '', 'nothing is staged');
+		assert.deepStrictEqual(pathsOf(other), ['c.txt']);
+
+		git('rm', '-q', '--cached', '-r', 'all-one.txt', 'all-dir', 'new.txt');
+		fs.rmSync(path.join(root, 'all-one.txt'));
+		fs.rmSync(path.join(root, 'all-dir'), { recursive: true });
+		git('checkout', '--', 'c.txt');
+		repository.changelists.deleteList(other);
+		await waitFor(() => lists().length === 1 && pathsOf(DEFAULT_CHANGELIST_ID).length === 0 && unversioned().includes('new.txt'), 'cleaned up');
+	});
+
+	test('a staged file returns to its changelist on unstage, a new file returns to Changes', async function () {
+		const feature = createList('Round trip');
+		write('a.txt', 'a-roundtrip\n');
+		write('born.txt', 'born\n');
+		await waitFor(() => pathsOf(DEFAULT_CHANGELIST_ID).includes('a.txt') && unversioned().includes('born.txt'), 'inputs ready');
+		await repository.changelists.moveFiles(['a.txt'], feature);
+		await waitFor(() => pathsOf(feature).includes('a.txt'), 'a.txt in Round trip');
+
+		await commands.executeCommand('git.stage', repository.changelists.resourcesIn(feature)[0]);
+		await commands.executeCommand('git.stage', repository.untrackedGroup.resourceStates.find(r => r.resourceUri.fsPath.endsWith('born.txt')));
+		await waitFor(() => pathsOf(DEFAULT_CHANGELIST_ID).includes('born.txt'), 'born.txt added to Changes');
+		await commands.executeCommand('git.stage', repository.changelists.resourcesIn(DEFAULT_CHANGELIST_ID).find(r => r.resourceUri.fsPath.endsWith('born.txt')));
+		await waitFor(() => repository.indexGroup.resourceStates.length === 2, 'a.txt and born.txt staged');
+		assert.strictEqual(git('diff', '--cached', '--name-only').trim().split('\n').sort().join(','), 'a.txt,born.txt');
+
+		await commands.executeCommand('git.unstageAll', repository.sourceControl);
+		await waitFor(() => repository.indexGroup.resourceStates.length === 0 && pathsOf(feature).includes('a.txt'), 'a.txt back in its changelist');
+
+		assert.ok(pathsOf(DEFAULT_CHANGELIST_ID).includes('born.txt'), 'the new file returns to Changes, not to Unversioned');
+		assert.ok(!unversioned().includes('born.txt'));
+
+		git('rm', '-q', '--cached', 'born.txt');
+		fs.rmSync(path.join(root, 'born.txt'));
+		git('checkout', '--', 'a.txt');
+		repository.changelists.deleteList(feature);
+		await waitFor(() => lists().length === 1 && pathsOf(DEFAULT_CHANGELIST_ID).length === 0, 'cleaned up');
+	});
+
+	test('stage of one file keeps the other changelists even with optimistic updates', async function () {
+		const [first, second] = [createList('First'), createList('Second')];
+		write('a.txt', 'a-opt\n');
+		write('b.txt', 'b-opt\n');
+		await waitFor(() => pathsOf(DEFAULT_CHANGELIST_ID).length === 2, 'two files changed');
+		await repository.changelists.moveFiles(['a.txt'], first);
+		await repository.changelists.moveFiles(['b.txt'], second);
+		await waitFor(() => pathsOf(first).length === 1 && pathsOf(second).length === 1, 'files distributed');
+
+		await commands.executeCommand('git.stage', repository.changelists.resourcesIn(first)[0]);
+		assert.deepStrictEqual(pathsOf(second), ['b.txt'], 'the other changelist is intact right after staging');
+		await waitFor(() => repository.indexGroup.resourceStates.length === 1, 'a.txt staged');
+		assert.deepStrictEqual(pathsOf(second), ['b.txt']);
+
+		git('reset', '-q');
+		git('checkout', '--', 'a.txt', 'b.txt');
+		repository.changelists.deleteList(first);
+		repository.changelists.deleteList(second);
+		await waitFor(() => lists().length === 1 && pathsOf(DEFAULT_CHANGELIST_ID).length === 0, 'cleaned up');
+	});
+
+	test('the badge counts Staged and Changes but not the custom changelists', async function () {
+		const parked = createList('Do not push');
+		write('a.txt', 'a-badge\n');
+		write('b.txt', 'b-badge\n');
+		await waitFor(() => pathsOf(DEFAULT_CHANGELIST_ID).length === 2, 'two files changed');
+		const badge = () => repository.sourceControl.count;
+
+		await waitFor(() => badge() === 2, 'both files counted');
+		await repository.changelists.moveFiles(['a.txt'], parked);
+		await waitFor(() => pathsOf(parked).length === 1 && badge() === 1, 'the parked file is not counted');
+
+		git('checkout', '--', 'a.txt', 'b.txt');
+		repository.changelists.deleteList(parked);
+		await waitFor(() => lists().length === 1 && pathsOf(DEFAULT_CHANGELIST_ID).length === 0, 'cleaned up');
 	});
 
 	test('the manifest contributes the changelist entries to every changelist group and folders', function () {

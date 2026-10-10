@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { commands, Disposable, l10n, SourceControl, SourceControlResourceGroup, window } from 'vscode';
+import { commands, Disposable, l10n, SourceControl, SourceControlResourceGroup, Uri, window } from 'vscode';
 import type { Model } from '../model';
 import { Repository, Resource, ResourceGroupType } from '../repository';
 import { DEFAULT_CHANGELIST_ID, validateChangelistName } from './changelistStore';
@@ -23,8 +23,13 @@ function isResource(arg: unknown): arg is Resource {
 	return typeof arg === 'object' && arg !== null && 'resourceUri' in arg && 'resourceGroupType' in arg;
 }
 
-function toResources(args: unknown[]): Resource[] {
-	return args.flatMap(arg => Array.isArray(arg) ? arg : [arg]).filter(isResource);
+function uriOf(arg: unknown): Uri | undefined {
+	if (arg instanceof Uri) {
+		return arg;
+	}
+
+	const candidate = typeof arg === 'object' && arg !== null ? (arg as { resourceUri?: unknown }).resourceUri : undefined;
+	return candidate instanceof Uri ? candidate : undefined;
 }
 
 export interface ChangelistPrompts {
@@ -274,17 +279,20 @@ export function createChangelistCommands(model: Model, prompts: ChangelistPrompt
 	}
 
 	async function moveToChangelist(...args: unknown[]): Promise<void> {
-		const all = toResources(args);
+		const flat = args.flatMap(arg => Array.isArray(arg) ? arg : [arg]);
+		const fromGroups = flat.filter(isGroup).flatMap(group => group.resourceStates as readonly unknown[]);
+		const all = [...flat, ...fromGroups].filter(isResource);
+		const nodes = flat.filter(arg => !isResource(arg) && !isGroup(arg)).map(uriOf).filter((uri): uri is Uri => !!uri);
 		const tracked = all.filter(r => r.resourceGroupType === ResourceGroupType.WorkingTree);
 		const unversioned = all.filter(r => r.resourceGroupType === ResourceGroupType.Untracked);
-		const first = tracked[0] ?? unversioned[0];
+		const firstUri = (tracked[0] ?? unversioned[0])?.resourceUri ?? nodes[0];
 
-		if (!first) {
+		if (!firstUri) {
 			prompts.showInformationMessage(l10n.t('Select changed files in a changelist first.'));
 			return;
 		}
 
-		const repository = model.getRepository(first.resourceUri);
+		const repository = model.getRepository(firstUri);
 
 		if (!repository) {
 			return;
@@ -299,7 +307,7 @@ export function createChangelistCommands(model: Model, prompts: ChangelistPrompt
 		}
 
 		await changelists.moveResources(tracked, listId);
-		await changelists.moveFiles(changelists.pathsOf(unversioned), listId);
+		await changelists.moveFiles([...changelists.pathsOf(unversioned), ...nodes.map(uri => changelists.relativePath(uri.fsPath))], listId);
 	}
 
 	return { createChangelist, renameChangelist, deleteChangelist, stageChangelist, commitChangelist, moveChangelistFiles, moveToChangelist };

@@ -1033,6 +1033,7 @@ export class Repository implements Disposable {
 			workspaceState,
 			defaultGroup: () => this.workingTreeGroup,
 			untrackedGroup: () => this.untrackedGroup,
+			stagedPaths: () => this.indexGroup.resourceStates.map(r => r.resourceUri.fsPath),
 			createGroup: (id, label) => this._sourceControl.createResourceGroup(id, label, { multiDiffEditorEnableViewChanges: true }),
 			recreateUntrackedGroup: () => this.recreateUntrackedGroup(),
 			asUntracked: resource => resource.clone(ResourceGroupType.Untracked),
@@ -1311,7 +1312,7 @@ export class Repository implements Disposable {
 
 				// Collect added resources
 				const addedResourceStates: Resource[] = [];
-				for (const resource of [...this.mergeGroup.resourceStates, ...this.untrackedGroup.resourceStates, ...this.workingTreeGroup.resourceStates]) {
+				for (const resource of [...this.mergeGroup.resourceStates, ...this.untrackedGroup.resourceStates, ...this.allWorkingTreeResources()]) {
 					if (resourcePaths.includes(resource.resourceUri.fsPath) && !indexGroupResourcePaths.includes(resource.resourceUri.fsPath)) {
 						addedResourceStates.push(resource.clone(ResourceGroupType.Index));
 					}
@@ -1325,7 +1326,7 @@ export class Repository implements Disposable {
 					.filter(r => !resourcePaths.includes(r.resourceUri.fsPath));
 
 				// Remove resource(s) from working group
-				const workingTreeGroup = this.workingTreeGroup.resourceStates
+				const workingTreeGroup = this.allWorkingTreeResources()
 					.filter(r => !resourcePaths.includes(r.resourceUri.fsPath));
 
 				// Remove resource(s) from untracked group
@@ -1395,8 +1396,8 @@ export class Repository implements Disposable {
 
 				// Add resource(s) to working group
 				const workingTreeGroup = untrackedChanges === 'mixed' ?
-					[...this.workingTreeGroup.resourceStates, ...trackedResources, ...untrackedResources] :
-					[...this.workingTreeGroup.resourceStates, ...trackedResources];
+					[...this.allWorkingTreeResources(), ...trackedResources, ...untrackedResources] :
+					[...this.allWorkingTreeResources(), ...trackedResources];
 
 				// Add resource(s) to untracked group
 				const untrackedGroup = untrackedChanges === 'separate' ?
@@ -1415,7 +1416,7 @@ export class Repository implements Disposable {
 
 				const resourceStates = [
 					...this.indexGroup.resourceStates,
-					...this.workingTreeGroup.resourceStates,
+					...this.allWorkingTreeResources(),
 					...this.untrackedGroup.resourceStates
 				];
 
@@ -1605,7 +1606,7 @@ export class Repository implements Disposable {
 				const toClean: string[] = [];
 				const toCheckout: string[] = [];
 				const submodulesToUpdate: string[] = [];
-				const resourceStates = [...this.workingTreeGroup.resourceStates, ...this.untrackedGroup.resourceStates];
+				const resourceStates = [...this.allWorkingTreeResources(), ...this.untrackedGroup.resourceStates];
 
 				resources.forEach(r => {
 					const fsPath = r.fsPath;
@@ -1663,7 +1664,7 @@ export class Repository implements Disposable {
 				const resourcePaths = resources.map(r => r.fsPath);
 
 				// Remove resource(s) from working group
-				const workingTreeGroup = this.workingTreeGroup.resourceStates
+				const workingTreeGroup = this.allWorkingTreeResources()
 					.filter(r => !resourcePaths.includes(r.resourceUri.fsPath));
 
 				// Remove resource(s) from untracked group
@@ -3355,8 +3356,7 @@ export class Repository implements Disposable {
 		let count =
 			this.mergeGroup.resourceStates.length +
 			this.indexGroup.resourceStates.length +
-			this.workingTreeGroup.resourceStates.length +
-			this.changelists.customResourceCount();
+			this.workingTreeGroup.resourceStates.length;
 
 		switch (countBadge) {
 			case 'off': count = 0; break;
@@ -3568,6 +3568,10 @@ export class Repository implements Disposable {
 		}
 
 		this._onDidChangeBranchProtection.fire();
+	}
+
+	private allWorkingTreeResources(): Resource[] {
+		return this.changelists.workingTreeResources.filter(r => r.type !== Status.UNTRACKED);
 	}
 
 	private optimisticUpdateEnabled(): boolean {

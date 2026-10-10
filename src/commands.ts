@@ -22,6 +22,7 @@ import { getRemoteSourceActions, pickRemoteSource } from './remoteSource';
 import { RemoteSourceAction } from './typings/git-base';
 import { CloneManager } from './cloneManager';
 import { getSafeNotificationMessage } from './notification';
+import { DEFAULT_CHANGELIST_ID } from './changelists/changelistStore';
 
 abstract class CheckoutCommandItem implements QuickPickItem {
 	abstract get label(): string;
@@ -1582,8 +1583,16 @@ export class CommandCenter {
 			await repository.changelists.stageResources(repository, workingTree.filter(r => keys.has(r.resourceUri.toString())));
 		});
 
-		const resources = scmResources.map(r => r.resourceUri);
-		await this.runByRepository(resources, async (repository, resources) => repository.add(resources));
+		const addedToVcs = scmResources.filter(r => r.resourceGroupType === ResourceGroupType.Untracked);
+		const staged = scmResources.filter(r => r.resourceGroupType !== ResourceGroupType.Untracked);
+
+		await this.runByRepository(addedToVcs.map(r => r.resourceUri), async (repository, uris) => {
+			const keys = new Set(uris.map(uri => uri.toString()));
+			const own = addedToVcs.filter(r => keys.has(r.resourceUri.toString()));
+			await repository.changelists.moveFiles(repository.changelists.pathsOf(own), DEFAULT_CHANGELIST_ID);
+		});
+
+		await this.runByRepository(staged.map(r => r.resourceUri), async (repository, resources) => repository.add(resources));
 	}
 
 	@command('git.stageAll', { repository: true })
@@ -1645,10 +1654,13 @@ export class CommandCenter {
 	@command('git.stageAllUntracked', { repository: true })
 	async stageAllUntracked(repository: Repository): Promise<void> {
 		const resources = [...repository.workingTreeGroup.resourceStates, ...repository.untrackedGroup.resourceStates]
-			.filter(r => r.type === Status.UNTRACKED || r.type === Status.IGNORED);
-		const uris = resources.map(r => r.resourceUri);
+			.filter(r => r.type === Status.UNTRACKED);
 
-		await repository.add(uris);
+		if (resources.length === 0) {
+			return;
+		}
+
+		await repository.changelists.moveFiles(repository.changelists.pathsOf(resources as Resource[]), DEFAULT_CHANGELIST_ID);
 	}
 
 	@command('git.stageAllMerge', { repository: true })
@@ -2058,12 +2070,32 @@ export class CommandCenter {
 		}
 
 		const resources = scmResources.map(r => r.resourceUri);
-		await this.runByRepository(resources, async (repository, resources) => repository.revert(resources));
+		const added = new Set(scmResources.filter(r => r.type === Status.INDEX_ADDED).map(r => r.resourceUri.toString()));
+
+		await this.runByRepository(resources, async (repository, resources) => {
+			const keptTracked = resources.filter(uri => added.has(uri.toString()));
+			await repository.revert(resources);
+			await this.keepInChanges(repository, keptTracked);
+		});
+	}
+
+	private async keepInChanges(repository: Repository, uris: Uri[]): Promise<void> {
+		if (uris.length === 0) {
+			return;
+		}
+
+		const paths = repository.changelists.pathsOf(uris.map(uri => ({ resourceUri: uri }) as Resource));
+		await repository.changelists.moveFiles(paths, DEFAULT_CHANGELIST_ID);
 	}
 
 	@command('git.unstageAll', { repository: true })
 	async unstageAll(repository: Repository): Promise<void> {
+		const added = repository.indexGroup.resourceStates
+			.filter(r => r.type === Status.INDEX_ADDED)
+			.map(r => r.resourceUri);
+
 		await repository.revert([]);
+		await this.keepInChanges(repository, added);
 	}
 
 	@command('git.unstageSelectedRanges')

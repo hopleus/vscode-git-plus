@@ -40,6 +40,22 @@ suite('changelists', () => {
 			assert.strictEqual(s.listOf('a'), undefined);
 		});
 
+		test('keeps assignments for staged files and drops them once they leave the index', () => {
+			const s = store();
+			const feature = s.create('Feature');
+			s.reconcile([change('a'), change('b')]);
+			s.move(['a'], feature.id);
+
+			s.reconcile([change('b')], new Set(['a']));
+			assert.strictEqual(s.listOf('a'), feature.id);
+
+			s.reconcile([change('a'), change('b')], new Set());
+			assert.strictEqual(s.listOf('a'), feature.id);
+
+			s.reconcile([change('b')], new Set());
+			assert.strictEqual(s.listOf('a'), undefined);
+		});
+
 		test('reports no change when nothing differs', () => {
 			const s = store();
 			s.reconcile([change('a')]);
