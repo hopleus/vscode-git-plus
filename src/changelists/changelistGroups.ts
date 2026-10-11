@@ -359,7 +359,7 @@ export class ChangelistGroups {
 			await repository.add(wholeFiles.map(r => r.resourceUri));
 		}
 
-		await repository.status();
+		await this.host.refreshStatus();
 	}
 
 	async beginCommit(opts: { amend?: boolean }): Promise<CommitMode> {

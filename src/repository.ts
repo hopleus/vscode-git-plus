@@ -1039,7 +1039,7 @@ export class Repository implements Disposable {
 			asUntracked: resource => resource.clone(ResourceGroupType.Untracked),
 			applyDistribution: () => this.applyChangelists(),
 			operationInProgress: () => !!(this.mergeInProgress || this.rebaseCommit || this.cherryPickInProgress),
-			refreshStatus: () => this.status()
+			refreshStatus: () => this.refreshStatusBounded()
 		});
 		this.disposables.push({ dispose: () => this.changelists.dispose() });
 
@@ -1196,6 +1196,22 @@ export class Repository implements Disposable {
 	@throttle
 	async status(): Promise<void> {
 		await this.run(Operation.Status);
+	}
+
+	private async refreshStatusBounded(timeoutMs = 30000): Promise<void> {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const expired = new Promise<void>(resolve => {
+			timer = setTimeout(() => {
+				this.logger.warn(`[Repository][refreshStatusBounded] Status refresh did not finish within ${timeoutMs}ms, continuing without waiting for it.`);
+				resolve();
+			}, timeoutMs);
+		});
+
+		try {
+			await Promise.race([this.run(Operation.Status), expired]);
+		} finally {
+			clearTimeout(timer);
+		}
 	}
 
 	@throttle

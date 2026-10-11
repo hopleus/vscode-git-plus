@@ -1271,6 +1271,22 @@ suite('changelists integration', function () {
 		await waitFor(() => lists().length === 1 && pathsOf(DEFAULT_CHANGELIST_ID).length === 0, 'cleaned up');
 	});
 
+	test('moving an unversioned file does not wait for a stuck throttled status', async function () {
+		const target = createList('No deadlock');
+		write('stuck-status.txt', 's\n');
+		await waitFor(() => unversioned().includes('stuck-status.txt'), 'new file is unversioned');
+		sinon.stub(repository, 'status').returns(new Promise<void>(() => undefined));
+
+		await repository.changelists.moveFiles(['stuck-status.txt'], target);
+		sinon.restore();
+		await waitFor(() => pathsOf(target).includes('stuck-status.txt'), 'file adopted');
+
+		git('rm', '-q', '--cached', 'stuck-status.txt');
+		fs.rmSync(path.join(root, 'stuck-status.txt'));
+		repository.changelists.deleteList(target);
+		await waitFor(() => lists().length === 1, 'cleaned up');
+	});
+
 	test('the manifest contributes the changelist entries to every changelist group and folders', function () {
 		const contributes = extensions.getExtension('vscode.git')!.packageJSON.contributes;
 		const entries = (menu: string): { command: string; when: string; group: string }[] => contributes.menus[menu];
