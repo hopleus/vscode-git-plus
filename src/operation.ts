@@ -203,7 +203,7 @@ export interface OperationResult {
 
 interface IOperationManager {
 	getOperations(operationKind: OperationKind): Operation[];
-	isIdle(): boolean;
+	isIdle(ignoredKinds?: readonly OperationKind[]): boolean;
 	isRunning(operationKind: OperationKind): boolean;
 	shouldDisableCommands(): boolean;
 	shouldShowProgress(): boolean;
@@ -242,12 +242,12 @@ export class OperationManager implements IOperationManager {
 		return operationSet ? Array.from(operationSet) : [];
 	}
 
-	isIdle(): boolean {
+	isIdle(ignoredKinds: readonly OperationKind[] = []): boolean {
 		const operationSets = this.operations.values();
 
 		for (const operationSet of operationSets) {
 			for (const operation of operationSet) {
-				if (!operation.readOnly) {
+				if (!operation.readOnly && !ignoredKinds.includes(operation.kind)) {
 					return false;
 				}
 			}

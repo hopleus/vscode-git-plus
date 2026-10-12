@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { workspace, Disposable, EventEmitter, Memento, window, MessageItem, ConfigurationTarget, Uri, ConfigurationChangeEvent, l10n, env } from 'vscode';
+import { workspace, CancellationTokenSource, Disposable, EventEmitter, Memento, window, MessageItem, ConfigurationTarget, Uri, ConfigurationChangeEvent, l10n, env } from 'vscode';
 import { Repository } from './repository';
 import { eventToPromise, filterEvent, onceEvent } from './util';
 import { GitErrorCodes } from './api/git.constants';
@@ -11,6 +11,7 @@ import { GitErrorCodes } from './api/git.constants';
 export class AutoFetcher {
 
 	private static DidInformUser = 'autofetch.didInformUser';
+	private static FetchTimeout = 60_000;
 
 	private _onDidChange = new EventEmitter<boolean>();
 	private onDidChange = this._onDidChange.event;
@@ -112,16 +113,22 @@ export class AutoFetcher {
 				return;
 			}
 
+			const cancellation = new CancellationTokenSource();
+			const timer = setTimeout(() => cancellation.cancel(), AutoFetcher.FetchTimeout);
+
 			try {
 				if (this._fetchAll) {
-					await this.repository.fetchAll({ silent: true });
+					await this.repository.fetchAll({ silent: true }, cancellation.token);
 				} else {
-					await this.repository.fetchDefault({ silent: true });
+					await this.repository.fetchDefault({ silent: true }, cancellation.token);
 				}
 			} catch (err) {
 				if (err.gitErrorCode === GitErrorCodes.AuthenticationFailed) {
 					this.disable();
 				}
+			} finally {
+				clearTimeout(timer);
+				cancellation.dispose();
 			}
 
 			if (!this.enabled) {

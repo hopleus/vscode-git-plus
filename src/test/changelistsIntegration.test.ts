@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as sinon from 'sinon';
-import { commands, extensions, TabInputWebview, Uri, window, workspace } from 'vscode';
+import { CancellationTokenSource, commands, extensions, TabInputWebview, Uri, window, workspace } from 'vscode';
 import { ChangelistGroups, PREVIEW_SCHEME } from '../changelists/changelistGroups';
 import { ChangelistPrompts, createChangelistCommands } from '../changelists/commands';
 import { HunkCodeLensProvider } from '../changelists/hunkUi';
@@ -1285,6 +1285,26 @@ suite('changelists integration', function () {
 		fs.rmSync(path.join(root, 'stuck-status.txt'));
 		repository.changelists.deleteList(target);
 		await waitFor(() => lists().length === 1, 'cleaned up');
+	});
+
+	test('a hanging fetch is stopped by its cancellation token and leaves the repository usable', async function () {
+		git('remote', 'add', 'slow', 'ssh://example.invalid/repo.git');
+		git('config', 'core.sshCommand', 'sleep 60 #');
+		const source = new CancellationTokenSource();
+		const timer = setTimeout(() => source.cancel(), 500);
+		const started = Date.now();
+
+		try {
+			await assert.rejects(repository.fetchAll({ silent: true }, source.token));
+			assert.ok(Date.now() - started < 15000, 'the fetch was killed instead of running to its end');
+			await repository.status();
+			assert.ok(repository.operations.isIdle(), 'no operation is left running');
+		} finally {
+			clearTimeout(timer);
+			source.dispose();
+			git('config', '--unset', 'core.sshCommand');
+			git('remote', 'remove', 'slow');
+		}
 	});
 
 	test('the manifest contributes the changelist entries to every changelist group and folders', function () {

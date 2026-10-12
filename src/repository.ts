@@ -41,6 +41,8 @@ import { createWorktreeSymlink, filterWorktreeSymlinkFolders, getWorktreeSymlink
 
 const timeout = (millis: number) => new Promise(c => setTimeout(c, millis));
 
+const BACKGROUND_OPERATIONS: readonly OperationKind[] = [OperationKind.Fetch];
+
 const iconsRootPath = path.join(path.dirname(__dirname), 'resources', 'icons');
 
 function getIconUri(iconName: string, theme: string): Uri {
@@ -2496,8 +2498,8 @@ export class Repository implements Disposable {
 	}
 
 	@throttle
-	async fetchDefault(options: { silent?: boolean } = {}): Promise<void> {
-		await this._fetch({ silent: options.silent });
+	async fetchDefault(options: { silent?: boolean } = {}, cancellationToken?: CancellationToken): Promise<void> {
+		await this._fetch({ silent: options.silent, cancellationToken });
 	}
 
 	@throttle
@@ -3456,7 +3458,7 @@ export class Repository implements Disposable {
 			return;
 		}
 
-		if (!this.operations.isIdle()) {
+		if (!this.operations.isIdle(BACKGROUND_OPERATIONS)) {
 			this.logger.trace('[Repository][onFileChange] Skip running git status because an operation is running.');
 			return;
 		}
@@ -3471,14 +3473,14 @@ export class Repository implements Disposable {
 
 	@throttle
 	private async updateWhenIdleAndWait(): Promise<void> {
-		await this.whenIdleAndFocused();
+		await this.whenIdleAndFocused(BACKGROUND_OPERATIONS);
 		await this.status();
 		await timeout(5000);
 	}
 
-	async whenIdleAndFocused(): Promise<void> {
+	async whenIdleAndFocused(ignoredKinds: readonly OperationKind[] = []): Promise<void> {
 		while (true) {
-			if (!this.operations.isIdle()) {
+			if (!this.operations.isIdle(ignoredKinds)) {
 				await eventToPromise(this.onDidRunOperation);
 				continue;
 			}
