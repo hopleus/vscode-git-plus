@@ -16,29 +16,63 @@ jobs:
       - name: Install git-filter-repo
         run: pipx install git-filter-repo==2.47.0
 
-      - name: Extract extensions/git from upstream
+      - name: Find the latest VS Code release and its branch point on main
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh api repos/microsoft/vscode/releases/latest --jq .tag_name)
+          base=$(gh api "repos/microsoft/vscode/compare/${tag}...main" --jq .merge_base_commit.sha)
+          test -n "$tag" && test -n "$base"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+          echo "Syncing extensions/git as of VS Code ${tag} (main at ${base})"
+
+      - name: Extract extensions/git from upstream at the release branch point
         run: |
           git clone --single-branch --branch main --no-tags \
             https://github.com/microsoft/vscode.git filtered
-          git -C filtered filter-repo --subdirectory-filter extensions/git
+          git -C filtered reset --hard "${{ steps.release.outputs.base }}"
+          git -C filtered remote remove origin
+          git -C filtered filter-repo --force --subdirectory-filter extensions/git
+
+      - name: Check that upstream can only move forward
+        id: forward
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          url="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C filtered fetch "$url" upstream:refs/remotes/mine/upstream
+          if git -C filtered merge-base --is-ancestor refs/remotes/mine/upstream HEAD; then
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          elif git -C filtered merge-base --is-ancestor HEAD refs/remotes/mine/upstream; then
+            echo "push=false" >> "$GITHUB_OUTPUT"
+            echo "VS Code ${{ steps.release.outputs.tag }} is older than the upstream branch, waiting for the next release"
+          else
+            echo "The filtered history diverged from the upstream branch. Do not force-push, investigate first."
+            exit 1
+          fi
 
       - name: Update upstream branch
+        if: steps.forward.outputs.push == 'true'
         env:
           TOKEN: ${{ github.token }}
         run: |
           git -C filtered push \
             "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            main:upstream
+            HEAD:refs/heads/upstream
 
       - name: Open PR upstream -> main
+        if: steps.forward.outputs.push == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
           AHEAD=$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...upstream" --jq .ahead_by)
           OPEN=$(gh pr list --repo "$GITHUB_REPOSITORY" --head upstream --base main \
                    --state open --json number --jq length)
           if [ "$AHEAD" -gt 0 ] && [ "$OPEN" -eq 0 ]; then
             gh pr create --repo "$GITHUB_REPOSITORY" --base main --head upstream \
-              --title "Sync with microsoft/vscode" \
-              --body "Upstream changes for extensions/git. Merge with 'Create a merge commit' only. See .github/SYNC.md"
+              --title "Sync with microsoft/vscode ${TAG}" \
+              --body "Upstream changes for extensions/git as of the VS Code ${TAG} release. Merge with 'Create a merge commit' only. See .github/SYNC.md"
           fi

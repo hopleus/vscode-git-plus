@@ -1,0 +1,49 @@
+name: Bump VS Code
+
+on:
+  schedule:
+    - cron: "43 5 * * *" # daily at 05:43 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare the pinned version with the latest release
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh api repos/microsoft/vscode/releases/latest --jq .tag_name)
+          current=$(node -p "require('./tools/config.json').vscode")
+          echo "latest=${latest}" >> "$GITHUB_OUTPUT"
+          if [ "$latest" = "$current" ]; then
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+          elif [ -n "$(gh pr list --repo "$GITHUB_REPOSITORY" --head "bump/vscode-${latest}" --state all --json number --jq '.[].number')" ]; then
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            echo "A PR for ${latest} already exists"
+          else
+            echo "bump=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open a PR that pins the new version
+        if: steps.version.outputs.bump == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.version.outputs.latest }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "bump/vscode-${LATEST}"
+          sed -i "s/\"vscode\": \"[^\"]*\"/\"vscode\": \"${LATEST}\"/" tools/config.json
+          git commit -am "pin VS Code ${LATEST} for API types and tests"
+          git push origin "bump/vscode-${LATEST}"
+          gh pr create --base main --head "bump/vscode-${LATEST}" \
+            --title "Pin VS Code ${LATEST}" \
+            --body "Types and test runs move to the latest VS Code release. CI shows whether the code still builds and passes against it."
