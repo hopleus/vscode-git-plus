@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as sinon from 'sinon';
-import { CancellationTokenSource, commands, extensions, TabInputWebview, Uri, window, workspace } from 'vscode';
+import { CancellationTokenSource, commands, ConfigurationTarget, extensions, TabInputWebview, Uri, window, workspace } from 'vscode';
 import { ChangelistGroups, PREVIEW_SCHEME } from '../changelists/changelistGroups';
 import { ChangelistPrompts, createChangelistCommands } from '../changelists/commands';
 import { HunkCodeLensProvider } from '../changelists/hunkUi';
@@ -278,8 +278,15 @@ suite('changelists integration', function () {
 		git('add', 'a.txt');
 		await waitFor(() => pathsOf(DEFAULT_CHANGELIST_ID).length === 0, 'a.txt staged');
 
-		repository.inputBox.value = 'the rest, amended';
-		await commands.executeCommand('git.commitAmend', repository.sourceControl);
+		await workspace.getConfiguration('git').update('amendAlwaysEdit', false, ConfigurationTarget.Global);
+
+		try {
+			repository.inputBox.value = 'the rest, amended';
+			await commands.executeCommand('git.commitAmend', repository.sourceControl);
+		} finally {
+			await workspace.getConfiguration('git').update('amendAlwaysEdit', undefined, ConfigurationTarget.Global);
+		}
+
 		assert.strictEqual(commitCount(), before);
 		assert.deepStrictEqual(committedFiles(), ['a.txt', 'c.txt']);
 	});

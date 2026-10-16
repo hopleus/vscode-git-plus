@@ -221,6 +221,7 @@
 	"config.ignoreRebaseWarning": "Ignores the warning when it looks like the branch might have been rebased when pulling.",
 	"config.defaultCloneDirectory": "The default location to clone a Git repository.",
 	"config.useEditorAsCommitInput": "Controls whether a full text editor will be used to author commit messages, whenever no message is provided in the commit input box.",
+	"config.amendAlwaysEdit": "Commit (Amend) always opens the commit message editor with the message of the last commit and ignores the text in the commit input box. Requires `#git.useEditorAsCommitInput#`.",
 	"config.verboseCommit": "Enable verbose output when `#git.useEditorAsCommitInput#` is enabled.",
 	"config.enableSmartCommit": "Ignored by Git Plus: a plain commit with nothing staged commits nothing. Commit a changelist from its group instead.",
 	"config.smartCommitChanges": "Control which changes are automatically staged by Smart Commit.",

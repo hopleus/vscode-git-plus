@@ -3788,6 +3788,12 @@
           "description": "%config.useEditorAsCommitInput%",
           "default": true
         },
+        "git.amendAlwaysEdit": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "%config.amendAlwaysEdit%",
+          "default": true
+        },
         "git.verboseCommit": {
           "type": "boolean",
           "scope": "resource",

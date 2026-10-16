@@ -2492,7 +2492,10 @@ export class CommandCenter {
 			opts.signoff = true;
 		}
 
-		if (config.get<boolean>('useEditorAsCommitInput')) {
+		const useEditorAsCommitInput = config.get<boolean>('useEditorAsCommitInput') === true;
+		const amendInEditor = !!opts.amend && useEditorAsCommitInput && config.get<boolean>('amendAlwaysEdit', true);
+
+		if (useEditorAsCommitInput) {
 			opts.useEditor = true;
 
 			if (config.get<boolean>('verboseCommit')) {
@@ -2550,7 +2553,7 @@ export class CommandCenter {
 			}
 		}
 
-		const message = await getCommitMessage();
+		const message = amendInEditor ? undefined : await getCommitMessage();
 
 		if (!message && !opts.amend && !opts.useEditor) {
 			return;
