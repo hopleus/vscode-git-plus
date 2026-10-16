@@ -367,8 +367,13 @@ export class ChangelistGroups {
 		this.presetList = undefined;
 		this.plan = undefined;
 
-		if (listId === undefined || this.host.operationInProgress()) {
+		if (listId === undefined) {
 			return 'upstream';
+		}
+
+		if (this.host.operationInProgress()) {
+			window.showInformationMessage(l10n.t('A changelist cannot be committed while a merge, rebase or cherry-pick is in progress.'));
+			return 'cancel';
 		}
 
 		const selection = await this.selectionOf(listId);

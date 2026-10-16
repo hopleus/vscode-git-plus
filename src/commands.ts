@@ -2422,7 +2422,6 @@ export class CommandCenter {
 			promptToSaveFilesBeforeCommit = promptToSaveFilesBeforeCommit ? 'always' : 'never';
 		}
 
-		let enableSmartCommit = config.get<boolean>('enableSmartCommit') === true;
 		let noStagedChanges = repository.indexGroup.resourceStates.length === 0;
 		let noUnstagedChanges = repository.workingTreeGroup.resourceStates.length === 0;
 
@@ -2470,38 +2469,18 @@ export class CommandCenter {
 				}
 			}
 
-			// no changes, and the user has not configured to commit all in this case
-			if (!commitsChangelist && !noUnstagedChanges && noStagedChanges && !enableSmartCommit && !opts.all && !opts.amend) {
-				const suggestSmartCommit = config.get<boolean>('suggestSmartCommit') === true;
-
-				if (!suggestSmartCommit) {
-					return;
-				}
-
-				// prompt the user if we want to commit all or not
-				const message = l10n.t('There are no staged changes to commit.\n\nWould you like to stage all your changes and commit them directly?');
-				const yes = l10n.t('Yes');
-				const always = l10n.t('Always');
-				const never = l10n.t('Never');
-				const pick = await window.showWarningMessage(message, { modal: true }, yes, always, never);
-
-				if (pick === always) {
-					enableSmartCommit = true;
-					config.update('enableSmartCommit', true, true);
-				} else if (pick === never) {
-					config.update('suggestSmartCommit', false, true);
-					return;
-				} else if (pick === yes) {
-					enableSmartCommit = true;
-				} else {
-					// Cancel
-					return;
-				}
-			}
-
-			// smart commit
-			if (!commitsChangelist && enableSmartCommit && !opts.all) {
-				opts = { ...opts, all: noStagedChanges };
+			if (
+				!commitsChangelist
+				&& noStagedChanges
+				&& !opts.all
+				&& !opts.amend
+				&& !repository.mergeInProgress
+				&& repository.rebaseCommit === undefined
+				&& !repository.cherryPickInProgress
+				&& (repository.changelists.workingTreeResources.length > 0 || repository.changelists.untrackedResources.length > 0)
+			) {
+				window.showInformationMessage(l10n.t('There are no staged changes to commit. Stage the files, or commit a changelist from its group.'));
+				return;
 			}
 		}
 

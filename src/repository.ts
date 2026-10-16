@@ -1502,8 +1502,7 @@ export class Repository implements Disposable {
 
 					try {
 						if (opts.all && !selectionIndex) {
-							const addOpts = opts.all === 'tracked' ? { update: true } : {};
-							await this.repository.add([], addOpts);
+							await this.stageDefaultChangelist(opts.all);
 						}
 
 						delete opts.all;
@@ -1529,6 +1528,28 @@ export class Repository implements Disposable {
 			await this.run(Operation.PostCommitCommand, async () => {
 				await this.commitCommandCenter.executePostCommitCommand(opts.postCommitCommand);
 			});
+		}
+	}
+
+	private async stageDefaultChangelist(all: true | 'tracked'): Promise<void> {
+		const paths = new Set<string>();
+
+		for (const resource of this.workingTreeGroup.resourceStates) {
+			paths.add(resource.resourceUri.fsPath);
+
+			if (resource.renameResourceUri) {
+				paths.add(resource.original.fsPath);
+			}
+		}
+
+		if (all !== 'tracked') {
+			for (const resource of this.untrackedGroup.resourceStates) {
+				paths.add(resource.resourceUri.fsPath);
+			}
+		}
+
+		if (paths.size > 0) {
+			await this.repository.add([...paths], all === 'tracked' ? { update: true } : {});
 		}
 	}
 
