@@ -61,6 +61,10 @@ export const enum ResourceGroupType {
 	Untracked
 }
 
+export function isNewFile(type: Status): boolean {
+	return type === Status.UNTRACKED || type === Status.IGNORED || type === Status.INTENT_TO_ADD;
+}
+
 export class Resource implements SourceControlResourceState {
 
 	static getStatusLetter(type: Status): string {
@@ -1430,6 +1434,7 @@ export class Repository implements Disposable {
 			Operation.Restore(!this.optimisticUpdateEnabled()),
 			async () => {
 				const toClean: string[] = [];
+				const toForget: string[] = [];
 				const toRestore: string[] = [];
 
 				const resourceStates = [
@@ -1452,10 +1457,19 @@ export class Repository implements Disposable {
 							toClean.push(resource.fsPath);
 							break;
 
+						case Status.INTENT_TO_ADD:
+							toForget.push(resource.fsPath);
+							break;
+
 						default:
 							toRestore.push(resource.fsPath);
 							break;
 					}
+				}
+
+				if (toForget.length > 0) {
+					await this.repository.revert('HEAD', toForget);
+					toClean.push(...toForget);
 				}
 
 				if (toClean.length > 0) {
@@ -1643,6 +1657,7 @@ export class Repository implements Disposable {
 			Operation.Clean(!this.optimisticUpdateEnabled()),
 			async () => {
 				const toClean: string[] = [];
+				const toForget: string[] = [];
 				const toCheckout: string[] = [];
 				const submodulesToUpdate: string[] = [];
 				const resourceStates = [...this.allWorkingTreeResources(), ...this.untrackedGroup.resourceStates];
@@ -1670,11 +1685,20 @@ export class Repository implements Disposable {
 							toClean.push(fsPath);
 							break;
 
+						case Status.INTENT_TO_ADD:
+							toForget.push(fsPath);
+							break;
+
 						default:
 							toCheckout.push(fsPath);
 							break;
 					}
 				});
+
+				if (toForget.length > 0) {
+					await this.repository.revert('HEAD', toForget);
+					toClean.push(...toForget);
+				}
 
 				if (toClean.length > 0) {
 					await this._clean(toClean);

@@ -11,7 +11,7 @@ import type { CommitOptions, RemoteSourcePublisher, Remote, Branch, Ref } from '
 import { ForcePushMode, GitErrorCodes, RefType, Status } from './api/git.constants';
 import { Git, GitError, Repository as GitRepository, Stash, Worktree } from './git';
 import { Model } from './model';
-import { GitResourceGroup, Repository, Resource, ResourceGroupType } from './repository';
+import { GitResourceGroup, isNewFile, Repository, Resource, ResourceGroupType } from './repository';
 import { dropCommit, editCommitMessage, resetBranchTo, squashCommits, undoCommitIntoChangelist } from './historyActions';
 import { DiffEditorSelectionHunkToolbarContext, LineChange, applyLineChanges, getIndexDiffInformation, getModifiedRange, getWorkingTreeDiffInformation, intersectDiffWithRange, invertLineChange, toLineChanges, toLineRanges, compareLineChanges } from './staging';
 import { fromGitUri, toGitUri, isGitUri, toMergeUris, toMultiFileDiffEditorUris } from './uri';
@@ -2272,7 +2272,7 @@ export class CommandCenter {
 	@command('git.cleanAllTracked', { repository: true })
 	async cleanAllTracked(repository: Repository): Promise<void> {
 		const resources = repository.workingTreeGroup.resourceStates
-			.filter(r => r.type !== Status.UNTRACKED && r.type !== Status.IGNORED);
+			.filter(r => !isNewFile(r.type));
 
 		if (resources.length === 0) {
 			return;
@@ -2284,7 +2284,7 @@ export class CommandCenter {
 	@command('git.cleanAllUntracked', { repository: true })
 	async cleanAllUntracked(repository: Repository): Promise<void> {
 		const resources = [...repository.workingTreeGroup.resourceStates, ...repository.untrackedGroup.resourceStates]
-			.filter(r => r.type === Status.UNTRACKED || r.type === Status.IGNORED);
+			.filter(r => isNewFile(r.type));
 
 		if (resources.length === 0) {
 			return;
@@ -2298,8 +2298,8 @@ export class CommandCenter {
 			return;
 		}
 
-		const trackedResources = resources.filter(r => r.type !== Status.UNTRACKED && r.type !== Status.IGNORED);
-		const untrackedResources = resources.filter(r => r.type === Status.UNTRACKED || r.type === Status.IGNORED);
+		const trackedResources = resources.filter(r => !isNewFile(r.type));
+		const untrackedResources = resources.filter(r => isNewFile(r.type));
 
 		if (untrackedResources.length === 0) {
 			// Tracked files only
