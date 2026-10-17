@@ -63,7 +63,7 @@ function writeManifest() {
 		publisher: config.publisher,
 		version,
 		main: './dist/main.js',
-		engines: { vscode: `^${config.vscode}` },
+		engines: { vscode: `^${config.minVscode ?? config.vscode}` },
 	});
 	if (repository) {
 		derived.repository = { type: 'git', url: `https://github.com/${repository}.git` };

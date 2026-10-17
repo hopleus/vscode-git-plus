@@ -20,7 +20,8 @@ released API types and the stable VS Code. `upstream` only moves forward: when t
 release is older than the current `upstream`, the workflow does nothing until the next release.
 
 The `Bump VS Code` workflow opens a PR that pins the latest release in `tools/config.json`
-(API types and the VS Code used by the tests). Merge it before the sync PR of the same release.
+(`vscode`: API types and the VS Code used by the tests). The oldest VS Code the extension installs on is
+`minVscode` in the same file; raise it by hand only when the code needs a newer API. Merge it before the sync PR of the same release.
 
 - Merge only with **Create a merge commit**. Squash or rebase will break the sync.
 - Do not delete the `upstream` branch after merging.
